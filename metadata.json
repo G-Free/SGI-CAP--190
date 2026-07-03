@@ -1,0 +1,6 @@
+{
+  "name": "MPLA CAP-190 Dashboard",
+  "description": "Sistema de gestão de militantes e arrecadação de quotas para o Comité de Acção do Partido MPLA CAP-190 (Ingombota, Luanda).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

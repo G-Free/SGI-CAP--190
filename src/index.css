@@ -1,0 +1,258 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+/* Apply Space Grotesk to entire app header and sidebar for premium unified letter type */
+#app-header, #sidebar-container {
+  font-family: "Space Grotesk", var(--font-sans), sans-serif;
+}
+
+/* Ajuste responsivo e aumento do tamanho de letra global (rem-based) */
+html {
+  font-size: 15px;
+  -webkit-text-size-adjust: 100%;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@media (min-width: 640px) {
+  html {
+    font-size: 15.5px;
+  }
+}
+
+@media (min-width: 768px) {
+  html {
+    font-size: 16.5px;
+  }
+}
+
+@media (min-width: 1024px) {
+  html {
+    font-size: 17px;
+  }
+}
+
+@media (min-width: 1280px) {
+  html {
+    font-size: 17.5px;
+  }
+}
+
+@media (min-width: 1536px) {
+  html {
+    font-size: 18px;
+  }
+}
+
+
+@media print {
+  #app-header,
+  #sidebar-container,
+  button,
+  .no-print,
+  .no-print * {
+    display: none !important;
+  }
+
+  body, html, #app-workspace, #app-body, #main-content {
+    background: white !important;
+    color: black !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
+    display: block !important;
+    border: none !important;
+    box-shadow: none !important;
+    width: 100% !important;
+  }
+
+  /* Make sure tables are printed fully */
+  table {
+    page-break-inside: auto;
+    width: 100% !important;
+  }
+  tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+  thead {
+    display: table-header-group;
+  }
+}
+
+/* Dark Theme Custom Adjustments */
+.dark body {
+  background-color: #09090b !important; /* zinc-950 */
+  color: #f4f4f5 !important; /* zinc-100 */
+}
+
+.dark #app-workspace {
+  background-color: #09090b !important;
+}
+
+.dark #main-content {
+  background-color: #0c0c0e !important; /* zinc-950/900 mix */
+}
+
+/* Let's make standard cards, tables and panels dark when .dark is active */
+.dark .bg-white {
+  background-color: #121214 !important; /* zinc-900 with rich depth */
+  color: #f4f4f5 !important;
+  border-color: #1f1f23 !important; /* zinc-800 */
+}
+
+.dark .border-zinc-100 {
+  border-color: #1a1a1e !important; /* zinc-850 */
+}
+
+.dark .border-zinc-200 {
+  border-color: #1f1f23 !important; /* zinc-800 */
+}
+
+.dark .border-zinc-300 {
+  border-color: #27272a !important; /* zinc-800 */
+}
+
+.dark .border-zinc-400 {
+  border-color: #3f3f46 !important; /* zinc-700 */
+}
+
+.dark .border-zinc-950 {
+  border-color: #4b5563 !important; /* gray-600 */
+}
+
+.dark .text-zinc-950, .dark .text-black, .dark .text-stone-900 {
+  color: #ffffff !important; /* maximum brightness for key headings */
+}
+
+.dark .text-zinc-900, .dark .text-zinc-800, .dark .text-zinc-700 {
+  color: #f4f4f5 !important; /* crisp off-white for high contrast */
+}
+
+.dark .text-zinc-600, .dark .text-zinc-500 {
+  color: #a1a1aa !important; /* zinc-400 */
+}
+
+.dark .bg-zinc-50 {
+  background-color: #09090b !important; /* zinc-950 */
+}
+
+.dark .bg-zinc-50\/50 {
+  background-color: #0c0c0e !important;
+}
+
+.dark .hover\:bg-zinc-50:hover {
+  background-color: #1a1a1e !important; /* zinc-850 hover */
+}
+
+.dark .bg-zinc-100 {
+  background-color: #161619 !important; /* zinc-850 */
+}
+
+.dark .bg-zinc-200 {
+  background-color: #27272a !important; /* zinc-800 */
+}
+
+.dark .bg-zinc-300 {
+  background-color: #3f3f46 !important; /* zinc-700 */
+}
+
+.dark .hover\:bg-zinc-100:hover {
+  background-color: #1e1e24 !important; /* zinc-800 */
+}
+
+.dark .hover\:bg-zinc-200:hover {
+  background-color: #27272a !important; /* zinc-800 */
+}
+
+.dark .hover\:bg-zinc-300:hover {
+  background-color: #3f3f46 !important; /* zinc-700 */
+}
+
+.dark .divide-zinc-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #1a1a1e !important;
+}
+
+.dark .divide-zinc-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #1f1f23 !important;
+}
+
+.dark .divide-zinc-300 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #27272a !important;
+}
+
+.dark .bg-rose-50 {
+  background-color: rgba(127, 29, 29, 0.2) !important; /* red-950/20 */
+}
+
+.dark .border-rose-100, .dark .border-rose-200 {
+  border-color: rgba(239, 68, 68, 0.25) !important;
+}
+
+.dark .text-rose-700, .dark .text-rose-800 {
+  color: #fca5a5 !important; /* light red-300 */
+}
+
+.dark .hover\:bg-rose-50\/50:hover {
+  background-color: rgba(220, 38, 38, 0.12) !important;
+}
+
+.dark input, .dark select, .dark textarea {
+  background-color: #0c0c0e !important;
+  border-color: #27272a !important;
+  color: #ffffff !important;
+}
+
+.dark input::placeholder, .dark textarea::placeholder {
+  color: #52525b !important; /* zinc-600 */
+}
+
+.dark .divide-zinc-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #1f1f23 !important;
+}
+
+.dark .bg-red-50 {
+  background-color: rgba(127, 29, 29, 0.25) !important; /* red-950 */
+  border-color: rgba(239, 68, 68, 0.3) !important;
+}
+
+.dark .text-red-800, .dark .text-red-700 {
+  color: #fca5a5 !important; /* red-300 */
+}
+
+.dark .bg-emerald-50 {
+  background-color: rgba(6, 78, 59, 0.25) !important; /* emerald-950 */
+  border-color: rgba(16, 185, 129, 0.3) !important;
+}
+
+.dark .text-emerald-800, .dark .text-emerald-700 {
+  color: #a7f3d0 !important; /* emerald-300 */
+}
+
+.dark .bg-amber-50 {
+  background-color: rgba(120, 53, 4, 0.25) !important; /* amber-950 */
+  border-color: rgba(245, 158, 11, 0.3) !important;
+}
+
+.dark .text-amber-800, .dark .text-amber-700 {
+  color: #fde68a !important; /* amber-200 */
+}
+
+.dark .bg-blue-50 {
+  background-color: rgba(30, 58, 138, 0.25) !important; /* blue-950 */
+  border-color: rgba(59, 130, 246, 0.3) !important;
+}
+
+.dark .text-blue-800, .dark .text-blue-700 {
+  color: #bfdbfe !important; /* blue-200 */
+}
+
