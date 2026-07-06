@@ -690,9 +690,8 @@ export function RelatoriosView({
     doc.setFont("Helvetica", "bold");
     doc.setFontSize(8);
     doc.setTextColor(113, 113, 122);
-    doc.text("SECRETARIA PARA ADMINISTRACAO", 21, startY + 5);
-    doc.text("COORDENADOR GERAL DO CAP-190", 121, startY + 5);
-
+    doc.text("TESOUREIRO(A)", 21, startY + 5);
+    doc.text("1.º SECRETÁRIO DO CAP-190", 121, startY + 5);
     doc.save(`CAP190_Relatorio_${activeReport}_2026.pdf`);
   };
 
