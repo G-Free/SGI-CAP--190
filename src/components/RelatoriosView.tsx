@@ -1659,13 +1659,13 @@ export function RelatoriosView({
               <div className="space-y-6">
                 <div className="h-0.5 bg-zinc-400 w-44 mx-auto" />
                 <span className="block text-zinc-500 uppercase">
-                  Secretaria para Administração
+                  Tesoureiro(a)
                 </span>
               </div>
               <div className="space-y-6">
                 <div className="h-0.5 bg-zinc-400 w-44 mx-auto" />
                 <span className="block text-zinc-500 uppercase">
-                  Coordenador Geral do CAP-190
+                  1.º Secretário do CAP-190
                 </span>
               </div>
             </div>
