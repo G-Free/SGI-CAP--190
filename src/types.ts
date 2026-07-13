@@ -23,6 +23,10 @@ export interface Militante {
   zona?: string;
   genero?: string;
   foto?: string; // Base64 image data or URL
+  registoEleitoral?: "Registado" | "Não Registado" | "Pendente";
+  numeroEleitor?: string;
+  localVotacao?: string;
+  mesaVoto?: string;
 }
 
 export interface QuotaPayment {
@@ -82,7 +86,7 @@ export interface Actividade {
   local: string;
   responsavel: string;
   estado: "Planeada" | "Em Progresso" | "Concluída" | "Cancelada";
-  tipo: "Mobilização" | "Reunião" | "Apoio Social" | "Formação" | "Outro";
+  tipo: "Mobilização" | "Reunião" | "Apoio Social" | "Formação" | "Outro" | "Atividade Extraordinária Temporária";
   custoPrevisto?: number;
 }
 
