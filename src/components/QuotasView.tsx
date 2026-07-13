@@ -24,6 +24,8 @@ import {
   AlertTriangle
 } from "lucide-react";
 import { Militante, QuotaPayment } from "../types";
+import { MplaCrestSvg } from "./Header";
+import { generateMonthlySharePDF } from "../lib/pdfReportGenerator";
 
 interface QuotasViewProps {
   militants: Militante[];
@@ -49,8 +51,87 @@ export function QuotasView({
   onDeletePayment,
   userRole = "Administrador"
 }: QuotasViewProps) {
-  // Navigation inside Quotas Tab: "LIST" or "MATRIX"
-  const [quotaSubTab, setQuotaSubTab] = useState<"LIST" | "MATRIX">("LIST");
+  // Navigation inside Quotas Tab: "LIST", "MATRIX" or "DISTRIBUICAO"
+  const [quotaSubTab, setQuotaSubTab] = useState<"LIST" | "MATRIX" | "DISTRIBUICAO">("LIST");
+
+  // State for monthly quota distribution beneficiaries & percentages
+  const [beneficiarios, setBeneficiarios] = useState<{ id: string; nome: string; percentagem: number; }[]>(() => {
+    const saved = localStorage.getItem("cap190_quota_beneficiaries");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        // ignore
+      }
+    }
+    return [
+      { id: "cap190", nome: "CAP-190 (Comité Local)", percentagem: 40 },
+      { id: "distrito", nome: "Comité de Distrito (Ingombota)", percentagem: 25 },
+      { id: "provincial", nome: "Comité Provincial (Luanda)", percentagem: 15 },
+      { id: "central", nome: "Comité Central (Nacional)", percentagem: 10 },
+      { id: "solidariedade", nome: "Fundo de Solidariedade Social", percentagem: 5 },
+    ];
+  });
+
+  // State for monthly quota distribution approvals / signatures
+  interface ApprovalDetail {
+    nome: string;
+    data: string;
+    assinado: boolean;
+  }
+  interface MonthApproval {
+    elaborado?: ApprovalDetail;
+    verificado?: ApprovalDetail;
+    aprovado?: ApprovalDetail;
+    autorizado?: ApprovalDetail;
+    submetido?: boolean;
+    dataSubmissao?: string;
+  }
+  const [approvals, setApprovals] = useState<{ [monthYear: string]: MonthApproval }>(() => {
+    const saved = localStorage.getItem("cap190_quota_distribution_approvals");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        // ignore
+      }
+    }
+    return {};
+  });
+
+  // Helper function to save beneficiaries & avoid useEffect complexity
+  const saveBeneficiarios = (newBenefs: typeof beneficiarios) => {
+    setBeneficiarios(newBenefs);
+    localStorage.setItem("cap190_quota_beneficiaries", JSON.stringify(newBenefs));
+  };
+
+  // Helper function to save approvals
+  const saveApprovals = (newApprovals: typeof approvals) => {
+    setApprovals(newApprovals);
+    localStorage.setItem("cap190_quota_distribution_approvals", JSON.stringify(newApprovals));
+  };
+
+  // State for active report modal
+  const [selectedReportMonth, setSelectedReportMonth] = useState<number | null>(null);
+  const [selectedReportYear, setSelectedReportYear] = useState<number | null>(null);
+  const [reportEmissionDate, setReportEmissionDate] = useState(() => new Date().toISOString().split("T")[0]);
+
+  // Form states for adding/editing a beneficiary
+  const [isAddingBeneficiary, setIsAddingBeneficiary] = useState(false);
+  const [newBenefNome, setNewBenefNome] = useState("");
+  const [newBenefPct, setNewBenefPct] = useState<number>(5);
+
+  // Sign inputs for each signature category
+  const [signInputs, setSignInputs] = useState({
+    elaboradoNome: "",
+    elaboradoData: new Date().toISOString().split("T")[0],
+    verificadoNome: "",
+    verificadoData: new Date().toISOString().split("T")[0],
+    aprovadoNome: "",
+    aprovadoData: new Date().toISOString().split("T")[0],
+    autorizadoNome: "",
+    autorizadoData: new Date().toISOString().split("T")[0],
+  });
 
   // Search and Filter States
   const [searchTerm, setSearchTerm] = useState("");
@@ -496,8 +577,8 @@ export function QuotasView({
         </div>
       </div>
 
-      {/* 3. Sub-navigation within Quotas: List of Payments OR Interactive Matrix */}
-      <div className="flex border-b border-zinc-200" id="quotas-subtabs">
+      {/* 3. Sub-navigation within Quotas: List of Payments OR Interactive Matrix OR Monthly Distribution */}
+      <div className="flex border-b border-zinc-200 no-print" id="quotas-subtabs">
         <button
           onClick={() => setQuotaSubTab("LIST")}
           className={`px-4 py-2.5 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 border-b-2 transition-all cursor-pointer ${
@@ -522,9 +603,22 @@ export function QuotasView({
           <Grid className="w-4 h-4" />
           <span>Matriz de Quotas (Checklist)</span>
         </button>
+        <button
+          onClick={() => setQuotaSubTab("DISTRIBUICAO")}
+          className={`px-4 py-2.5 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 border-b-2 transition-all cursor-pointer ${
+            quotaSubTab === "DISTRIBUICAO"
+              ? "border-red-600 text-red-600 bg-red-50/10"
+              : "border-transparent text-zinc-500 hover:text-zinc-800"
+          }`}
+          id="subtab-distribuicao-btn"
+        >
+          <TrendingUp className="w-4 h-4 text-emerald-600" />
+          <span>Distribuição de Receitas</span>
+        </button>
       </div>
 
       {/* Shared Filters Panel (Applies to both LIST and MATRIX tabs) */}
+      {quotaSubTab !== "DISTRIBUICAO" && (
       <div className="bg-white rounded-lg border border-zinc-200 p-4 shadow-sm space-y-3 mt-4" id="quotas-shared-search-filters">
         <div className="flex flex-col lg:flex-row gap-4 items-center justify-between">
           {/* Search Input */}
@@ -625,6 +719,7 @@ export function QuotasView({
           </div>
         </div>
       </div>
+      )}
 
       {/* 4. Sub-tab Content: History List of Payments */}
       {quotaSubTab === "LIST" && (
@@ -893,6 +988,868 @@ export function QuotasView({
           </div>
         </div>
       )}
+
+      {/* 5.5. Sub-tab Content: Monthly Share Distribution */}
+      {quotaSubTab === "DISTRIBUICAO" && (
+        <div className="space-y-6" id="quotas-distribution-content">
+          {/* Top Info Banner */}
+          <div className="bg-gradient-to-r from-red-800 to-zinc-900 text-white rounded-lg p-4 shadow-sm border border-red-700">
+            <h4 className="text-sm font-black uppercase tracking-wider flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-yellow-300" />
+              Processamento Automatizado de Partilha de Quotas
+            </h4>
+            <p className="text-xs text-red-100 font-medium leading-relaxed mt-1">
+              O sistema calcula mensalmente o total de quotas pagas e distribui de forma automática entre os beneficiários partidários configurados, conforme as percentagens oficiais das regras de negócio. Todos os relatórios gerados necessitam de homologação com assinaturas para obter validade regulamentar.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Rules and Configuration Panel */}
+            <div className="lg:col-span-1 bg-white rounded-lg border border-zinc-200 p-4 shadow-sm space-y-4">
+              <div className="border-b border-zinc-200 pb-2">
+                <span className="text-xs font-black text-zinc-900 uppercase tracking-wider block">
+                  Regras de Partilha (%)
+                </span>
+                <span className="text-[10px] text-zinc-400 font-bold block mt-0.5">
+                  Configure as percentagens de destino para cada órgão/quota.
+                </span>
+              </div>
+
+              {/* List of Beneficiaries with edit controls */}
+              <div className="space-y-3">
+                {beneficiarios.map((b) => {
+                  const totalPercent = beneficiarios.reduce((sum, x) => sum + x.percentagem, 0);
+                  return (
+                    <div key={b.id} className="flex items-center justify-between gap-2 bg-zinc-50 p-2.5 rounded border border-zinc-200">
+                      <div className="leading-tight flex-1">
+                        <span className="text-xs font-bold text-zinc-800 block">{b.nome}</span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <div className="relative w-16">
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={b.percentagem}
+                            onChange={(e) => {
+                              const val = Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0));
+                              const updated = beneficiarios.map(x => x.id === b.id ? { ...x, percentagem: val } : x);
+                              saveBeneficiarios(updated);
+                            }}
+                            className="w-full text-right pr-4 py-1 text-xs font-bold border border-zinc-300 rounded focus:outline-none focus:ring-1 focus:ring-red-600 focus:border-red-600 font-mono bg-white"
+                          />
+                          <span className="absolute right-1 top-1.5 text-[9px] text-zinc-400 font-bold">%</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updated = beneficiarios.filter(x => x.id !== b.id);
+                            saveBeneficiarios(updated);
+                          }}
+                          className="p-1 hover:text-red-600 text-zinc-400 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                          title="Remover Beneficiário"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Add Beneficiary Inline Form */}
+                {isAddingBeneficiary ? (
+                  <div className="bg-zinc-100 p-3 rounded-lg border border-zinc-300 space-y-2.5 animate-in fade-in duration-150">
+                    <span className="text-[10px] font-black uppercase text-zinc-600 block">Novo Destinatário</span>
+                    
+                    <div className="space-y-1">
+                      <label className="text-[9px] text-zinc-500 font-bold block">Nome do Beneficiário / Quota</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: Comité de Zona"
+                        value={newBenefNome}
+                        onChange={(e) => setNewBenefNome(e.target.value)}
+                        className="w-full px-2 py-1 text-xs border border-zinc-300 rounded focus:outline-none bg-white font-bold"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[9px] text-zinc-500 font-bold block">Percentagem (%)</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="100"
+                        value={newBenefPct}
+                        onChange={(e) => setNewBenefPct(parseInt(e.target.value, 10) || 0)}
+                        className="w-full px-2 py-1 text-xs border border-zinc-300 rounded focus:outline-none bg-white font-mono font-bold"
+                      />
+                    </div>
+
+                    <div className="flex justify-end gap-1.5 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsAddingBeneficiary(false);
+                          setNewBenefNome("");
+                        }}
+                        className="px-2 py-1 text-[10px] bg-zinc-200 hover:bg-zinc-300 rounded text-zinc-700 font-black uppercase cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!newBenefNome.trim()) return;
+                          const newId = "benef_" + Date.now();
+                          saveBeneficiarios([...beneficiarios, { id: newId, nome: newBenefNome, percentagem: newBenefPct }]);
+                          setIsAddingBeneficiary(false);
+                          setNewBenefNome("");
+                        }}
+                        className="px-2.5 py-1 text-[10px] bg-red-700 hover:bg-red-800 text-white rounded font-black uppercase cursor-pointer"
+                      >
+                        Adicionar
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAddingBeneficiary(true);
+                      setNewBenefNome("");
+                      setNewBenefPct(5);
+                    }}
+                    className="w-full py-2 bg-zinc-50 hover:bg-zinc-100 border border-dashed border-zinc-300 hover:border-zinc-400 text-zinc-500 hover:text-zinc-800 rounded-lg text-xs font-black uppercase flex items-center justify-center gap-1.5 cursor-pointer transition-all"
+                  >
+                    <Plus className="w-4 h-4 text-emerald-600" />
+                    <span>Adicionar Destinatário</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Percentages Summary and Warning Block */}
+              {(() => {
+                const totalPercent = beneficiarios.reduce((sum, b) => sum + b.percentagem, 0);
+                const saldoPercent = Math.max(0, 100 - totalPercent);
+                return (
+                  <div className="pt-3 border-t border-zinc-200 space-y-2 text-xs font-bold">
+                    <div className="flex justify-between items-center text-zinc-600">
+                      <span>Total Configurado:</span>
+                      <span className={totalPercent > 100 ? "text-red-600 font-black" : "text-zinc-900 font-black"}>
+                        {totalPercent}%
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between items-center text-zinc-600">
+                      <span>Saldo Retido no CAP:</span>
+                      <span className="text-emerald-600 font-black">
+                        {saldoPercent}%
+                      </span>
+                    </div>
+
+                    {totalPercent > 100 ? (
+                      <div className="p-2.5 bg-red-50 border border-red-200 text-red-800 rounded text-[10px] leading-relaxed">
+                        <strong>⚠️ Percentagem Excedida:</strong> A soma das regras é {totalPercent}%, o que excede o limite absoluto de 100%. Por favor, reduza os valores antes de emitir relatórios.
+                      </div>
+                    ) : (
+                      <div className="p-2.5 bg-zinc-50 border border-zinc-200 text-zinc-500 rounded text-[10px] leading-relaxed font-medium">
+                        * Qualquer diferença entre a soma e 100% ({saldoPercent}%) é contabilizada como <strong>Saldo Local</strong> residual na conta corrente do CAP-190.
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Monthly Calculation and Process Board */}
+            <div className="lg:col-span-2 bg-white rounded-lg border border-zinc-200 p-4 shadow-sm space-y-4">
+              <div className="flex items-center justify-between border-b border-zinc-200 pb-2">
+                <div>
+                  <span className="text-xs font-black text-zinc-900 uppercase tracking-wider block">
+                    Balanço Mensal de Distribuição
+                  </span>
+                  <span className="text-[10px] text-zinc-400 font-bold block mt-0.5">
+                    Demonstração de arrecadação e destinação de receitas para o ano selecionado.
+                  </span>
+                </div>
+
+                {/* Year Select specifically for Distribution */}
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] uppercase font-extrabold text-zinc-400">Ano Fiscal:</span>
+                  <select
+                    value={selectedYearFilter === "Todos" ? 2026 : selectedYearFilter}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      setSelectedYearFilter(val);
+                    }}
+                    className="px-2 py-1 text-xs border border-zinc-300 rounded font-bold font-mono bg-zinc-50 hover:bg-zinc-100 cursor-pointer text-zinc-700"
+                  >
+                    <option value="2025">2025</option>
+                    <option value="2026">2026</option>
+                    <option value="2027">2027</option>
+                    <option value="2028">2028</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Monthly Shares Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs font-bold text-zinc-700">
+                  <thead>
+                    <tr className="bg-zinc-950 text-white text-[10px] uppercase font-black tracking-wider border-b border-zinc-800">
+                      <th className="py-2.5 px-3">Mês</th>
+                      <th className="py-2.5 px-3 text-right">Total Arrecadado</th>
+                      <th className="py-2.5 px-3 text-right">Total Distribuído</th>
+                      <th className="py-2.5 px-3 text-right">Saldo CAP</th>
+                      <th className="py-2.5 px-3 text-center">Homologação</th>
+                      <th className="py-2.5 px-3 text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100 font-semibold text-zinc-700">
+                    {Array.from({ length: 12 }).map((_, idx) => {
+                      const monthNum = idx + 1;
+                      const yearNum = selectedYearFilter === "Todos" ? 2026 : selectedYearFilter;
+                      
+                      // Calculate values
+                      const collected = payments
+                        .filter(p => p.pago && p.mes === monthNum && p.ano === yearNum)
+                        .reduce((sum, p) => sum + p.valor, 0);
+
+                      const totalPercent = beneficiarios.reduce((sum, b) => sum + b.percentagem, 0);
+                      const distributed = Math.round(collected * (totalPercent / 100));
+                      const saldo = collected - distributed;
+
+                      // Approval status
+                      const approvalKey = `${monthNum}-${yearNum}`;
+                      const appState = approvals[approvalKey] || {};
+                      
+                      const isAprovado = !!(appState.elaborado?.assinado && appState.autorizado?.assinado);
+                      const isSubmetido = !!appState.elaborado?.assinado;
+
+                      let statusBadge = (
+                        <span className="inline-block px-2 py-0.5 rounded text-[9px] font-black bg-zinc-100 text-zinc-400 border border-zinc-200 uppercase">
+                          PENDENTE
+                        </span>
+                      );
+                      if (isAprovado) {
+                        statusBadge = (
+                          <span className="inline-block px-2 py-0.5 rounded text-[9px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200 uppercase">
+                            ✓ APROVADO
+                          </span>
+                        );
+                      } else if (isSubmetido) {
+                        statusBadge = (
+                          <span className="inline-block px-2 py-0.5 rounded text-[9px] font-black bg-blue-50 text-blue-700 border border-blue-200 uppercase">
+                            SUBMETIDO
+                          </span>
+                        );
+                      }
+
+                      return (
+                        <tr key={monthNum} className="hover:bg-zinc-50/50 transition-all">
+                          <td className="py-3 px-3">
+                            <span className="font-extrabold text-zinc-900 block uppercase text-[11px] tracking-tight">
+                              {MONTHS_FULL[idx]}
+                            </span>
+                            <span className="text-[9px] text-zinc-400 block font-mono">Competência {monthNum}/{yearNum}</span>
+                          </td>
+                          
+                          <td className="py-3 px-3 text-right font-mono font-black text-zinc-900">
+                            {formatAKZ(collected)}
+                          </td>
+
+                          <td className="py-3 px-3 text-right font-mono text-emerald-600 font-extrabold">
+                            {formatAKZ(distributed)}
+                          </td>
+
+                          <td className="py-3 px-3 text-right font-mono text-blue-600 font-extrabold">
+                            {formatAKZ(Math.max(0, saldo))}
+                          </td>
+
+                          <td className="py-3 px-3 text-center">
+                            {statusBadge}
+                          </td>
+
+                          <td className="py-3 px-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedReportMonth(monthNum);
+                                setSelectedReportYear(yearNum);
+                                setReportEmissionDate(new Date().toISOString().split("T")[0]);
+                              }}
+                              className="px-2.5 py-1 text-[10px] font-black uppercase rounded bg-red-700 hover:bg-red-800 text-white cursor-pointer shadow-xs transition-colors flex items-center gap-1 ml-auto"
+                            >
+                              <FileText className="w-3.5 h-3.5 text-yellow-300" />
+                              <span>Relatório</span>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5.6. Beautiful Monthly Share Distribution Report Overlay Modal */}
+      {selectedReportMonth !== null && selectedReportYear !== null && (() => {
+        const monthNum = selectedReportMonth;
+        const yearNum = selectedReportYear;
+        const approvalKey = `${monthNum}-${yearNum}`;
+        const appState = approvals[approvalKey] || {};
+        
+        // Calculate report values
+        const totalArrecadado = payments
+          .filter(p => p.pago && p.mes === monthNum && p.ano === yearNum)
+          .reduce((sum, p) => sum + p.valor, 0);
+
+        const totalPercent = beneficiarios.reduce((sum, b) => sum + b.percentagem, 0);
+        const saldoPercent = Math.max(0, 100 - totalPercent);
+
+        const calculatedShares = beneficiarios.map(b => {
+          const shareVal = Math.round(totalArrecadado * (b.percentagem / 100));
+          return {
+            ...b,
+            valorCalculado: shareVal
+          };
+        });
+
+        const totalDistribuido = calculatedShares.reduce((sum, b) => sum + b.valorCalculado, 0);
+        const saldoResidual = totalArrecadado - totalDistribuido;
+
+        // Check is Homologated
+        const isHomologated = !!(appState.elaborado?.assinado && appState.autorizado?.assinado);
+
+        // Fetch list of payments in this month/year to show on the report
+        const monthPayments = payments.filter(p => p.pago && p.mes === monthNum && p.ano === yearNum);
+
+        const handleSign = (roleKey: "elaborado" | "verificado" | "aprovado" | "autorizado") => {
+          const typedName = signInputs[`${roleKey}Nome` as keyof typeof signInputs];
+          const typedDate = signInputs[`${roleKey}Data` as keyof typeof signInputs];
+
+          if (!typedName.trim()) {
+            alert(`Por favor, insira o nome do responsável por este pelouro.`);
+            return;
+          }
+
+          const updatedApproval = {
+            ...appState,
+            [roleKey]: {
+              nome: typedName,
+              data: typedDate,
+              assinado: true
+            }
+          };
+
+          const newApprovals = {
+            ...approvals,
+            [approvalKey]: updatedApproval
+          };
+
+          saveApprovals(newApprovals);
+        };
+
+        const handleClearSign = (roleKey: "elaborado" | "verificado" | "aprovado" | "autorizado") => {
+          const updatedApproval = {
+            ...appState,
+            [roleKey]: undefined
+          };
+
+          const newApprovals = {
+            ...approvals,
+            [approvalKey]: updatedApproval
+          };
+
+          saveApprovals(newApprovals);
+        };
+
+        const handleSubmeter = () => {
+          const updatedApproval = {
+            ...appState,
+            submetido: true,
+            dataSubmissao: new Date().toISOString().split("T")[0]
+          };
+
+          const newApprovals = {
+            ...approvals,
+            [approvalKey]: updatedApproval
+          };
+
+          saveApprovals(newApprovals);
+          alert(`O relatório homologado do mês de ${MONTHS_FULL[monthNum - 1]} foi submetido digitalmente ao Comité do Distrito com sucesso!`);
+        };
+
+        return (
+          <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 overflow-y-auto" id="modal-distribution-report-overlay">
+            {/* Inject printable styles */}
+            <style dangerouslySetInnerHTML={{__html: `
+              @media print {
+                /* Hide everything else */
+                body * {
+                  visibility: hidden !important;
+                }
+                #dist-report-print-content, #dist-report-print-content * {
+                  visibility: visible !important;
+                }
+                #dist-report-print-content {
+                  position: absolute !important;
+                  left: 0 !important;
+                  top: 0 !important;
+                  width: 100% !important;
+                  height: auto !important;
+                  background: white !important;
+                  color: black !important;
+                  padding: 1.5cm !important;
+                  margin: 0 !important;
+                  box-shadow: none !important;
+                  border: none !important;
+                }
+                .no-print {
+                  display: none !important;
+                }
+                /* Watermark in printing */
+                .print-watermark-container {
+                  position: relative !important;
+                }
+                .print-watermark {
+                  display: block !important;
+                }
+                .print-break-inside-avoid {
+                  page-break-inside: avoid !important;
+                }
+              }
+            `}} />
+
+            <div className="bg-white rounded-xl shadow-2xl border border-zinc-200 max-w-4xl w-full flex flex-col overflow-hidden max-h-[90vh] animate-in fade-in zoom-in-95 duration-200" id="modal-distribution-report">
+              {/* Modal Header */}
+              <div className="bg-zinc-950 text-white p-4 flex items-center justify-between border-b-4 border-red-700 no-print">
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5 text-yellow-400" />
+                  <span className="text-xs font-black tracking-widest uppercase">
+                    Relatório Oficial de Partilha e Distribuição de Quotas
+                  </span>
+                </div>
+                <button
+                  onClick={() => {
+                    setSelectedReportMonth(null);
+                    setSelectedReportYear(null);
+                  }}
+                  className="p-1 hover:bg-zinc-900 rounded transition-colors text-zinc-400 hover:text-white cursor-pointer"
+                  id="close-dist-report-btn"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Action Bar (hidden on print) */}
+              <div className="bg-zinc-50 border-b border-zinc-200 px-5 py-3 flex flex-wrap items-center justify-between gap-3 no-print">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-zinc-500 font-bold">Data de Emissão do Documento:</span>
+                  <input
+                    type="date"
+                    value={reportEmissionDate}
+                    onChange={(e) => setReportEmissionDate(e.target.value)}
+                    className="px-2.5 py-1 text-xs border border-zinc-300 rounded font-mono font-bold text-zinc-700 bg-white"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => window.print()}
+                    className="flex items-center gap-1.5 px-4 py-2 text-xs font-black text-zinc-700 bg-white hover:bg-zinc-50 border border-zinc-300 rounded-lg shadow-sm transition-all cursor-pointer select-none"
+                    id="print-dist-report-btn"
+                  >
+                    <Printer className="w-4 h-4 text-yellow-500" />
+                    <span>Imprimir Relatório</span>
+                  </button>
+                  
+                  <button
+                    onClick={() => {
+                      generateMonthlySharePDF(
+                        monthNum,
+                        selectedReportYear,
+                        totalArrecadado,
+                        calculatedShares,
+                        totalDistribuido,
+                        saldoResidual,
+                        isHomologated,
+                        !!appState.submetido,
+                        appState,
+                        reportEmissionDate
+                      );
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-2 text-xs font-black text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-sm transition-all cursor-pointer select-none"
+                    id="pdf-dist-report-btn"
+                  >
+                    <FileText className="w-4 h-4 text-yellow-300" />
+                    <span>Exportar em PDF</span>
+                  </button>
+
+                  {isHomologated && (
+                    appState.submetido ? (
+                      <div
+                        className="flex items-center gap-1.5 px-4 py-2 text-xs font-black text-emerald-800 bg-emerald-100 border border-emerald-300 rounded-lg shadow-sm opacity-90 select-none"
+                        id="submit-dist-report-btn-done"
+                      >
+                        <Check className="w-4 h-4 text-emerald-600" />
+                        <span>✓ Relatório Submetido</span>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={handleSubmeter}
+                        className="flex items-center gap-1.5 px-4 py-2 text-xs font-black text-white bg-blue-700 hover:bg-blue-800 rounded-lg shadow-sm transition-all cursor-pointer select-none border border-blue-600"
+                        id="submit-dist-report-btn"
+                      >
+                        <TrendingUp className="w-4 h-4 text-yellow-300" />
+                        <span>Submeter Homologado</span>
+                      </button>
+                    )
+                  )}
+                </div>
+              </div>
+
+              {/* Scrollable body of the modal */}
+              <div className="p-6 overflow-y-auto flex-1 space-y-6" id="report-modal-scrollable-body">
+                {/* Validity alerts based on signatures */}
+                <div className="mb-6 no-print">
+                  {isHomologated ? (
+                    <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg p-3.5 flex items-start gap-3">
+                      <div className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0 mt-0.5 font-bold">✓</div>
+                      <div>
+                        <h5 className="font-extrabold uppercase text-xs">Relatório Submetido e Aprovado</h5>
+                        <p className="text-[11px] text-emerald-700 mt-0.5 font-medium leading-relaxed">
+                          Este relatório de partilha de quotas foi devidamente <strong>submetido pelo Tesoureiro</strong> e <strong>aprovado pelo Coordenador Geral</strong>. O documento está ativo e validado.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-3.5 flex items-start gap-3">
+                      <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5 animate-pulse" />
+                      <div>
+                        <h5 className="font-extrabold uppercase text-xs text-amber-950">Aviso: Relatório Pendente de Aprovação</h5>
+                        <p className="text-[11px] text-amber-700 mt-0.5 font-medium leading-relaxed">
+                          Este documento <strong>não é considerado definitivo</strong> até que o Tesoureiro realize a submissão e o Coordenador faça a respetiva aprovação. Atualmente encontra-se sob o estatuto de <strong>"Rascunho de Trabalho"</strong>.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* THE PRINTABLE FRAME */}
+                <div 
+                  className="bg-white rounded-lg border border-zinc-200 p-8 shadow-sm relative overflow-hidden print:p-0 print:border-none print:shadow-none print-watermark-container"
+                  id="dist-report-print-content"
+                >
+                  {/* Diagonal Watermark if NOT Homologated */}
+                  {!isHomologated && (
+                    <div 
+                      className="absolute inset-0 flex items-center justify-center pointer-events-none select-none z-10 print-watermark"
+                      style={{ opacity: 0.04 }}
+                    >
+                      <span 
+                        className="text-red-700 text-5xl font-black tracking-widest border-8 border-red-700 p-6 uppercase leading-none rounded-2xl whitespace-nowrap"
+                        style={{ transform: "rotate(-30deg)" }}
+                      >
+                        PENDENTE DE APROVAÇÃO
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Official Header */}
+                  <div className="border-b-4 border-red-600 pb-4 mb-6 flex items-center relative" id="report-letterhead">
+                    <div className="absolute left-0">
+                      <MplaCrestSvg className="w-16 h-20 shrink-0" />
+                    </div>
+                    <div className="w-full text-center py-2 flex flex-col items-center justify-center">
+                      <h1 className="text-3xl font-black tracking-widest text-zinc-950 font-sans leading-none m-0">MPLA</h1>
+                      <h2 className="text-xs font-black text-zinc-900 uppercase mt-2.5 tracking-wide font-sans leading-none">COMITE DE ACCAO DO PARTIDO - 190</h2>
+                      <h3 className="text-[10px] font-bold text-zinc-500 uppercase mt-1.5 font-sans leading-none">Ingombota - Luanda * Angola</h3>
+                    </div>
+                  </div>
+
+                  {/* Memorandum Meta Info Box */}
+                  <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4 space-y-2 text-xs font-sans text-zinc-800 mb-6" id="report-memo-header">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <span className="text-[9px] text-zinc-400 font-extrabold uppercase tracking-wider block">MEMORANDO INTERNO / ADENDA REGULAMENTAR</span>
+                        <span className="text-zinc-900 font-black block mt-0.5">REF: ADENDA-CAP190-PARTILHA-{monthNum}-{yearNum}</span>
+                      </div>
+                      <div className="sm:text-right">
+                        <span className="text-[9px] text-zinc-400 font-extrabold uppercase tracking-wider block">DATA DE EMISSÃO</span>
+                        <span className="text-zinc-900 font-black block mt-0.5 font-mono">{reportEmissionDate.split("-").reverse().join("/")}</span>
+                      </div>
+                    </div>
+                    <div className="border-t border-zinc-200 pt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px]">
+                      <div>
+                        <strong className="text-zinc-500 uppercase font-black">PARA:</strong> <span className="text-zinc-900 font-bold">Comité do Distrito Urbano da Ingombota / Órgãos de Controle</span>
+                      </div>
+                      <div>
+                        <strong className="text-zinc-500 uppercase font-black">DE:</strong> <span className="text-zinc-900 font-bold">Comité de Acção do Partido 190 (CAP-190)</span>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <strong className="text-zinc-500 uppercase font-black font-sans">ASSUNTO:</strong> <span className="text-zinc-900 font-black uppercase">Partilha de Quotas Consolidadas - {MONTHS_FULL[monthNum - 1]} de {yearNum}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Introduction Statement */}
+                  <p className="text-xs text-zinc-700 font-normal leading-relaxed mb-6 font-sans text-justify">
+                    Em estrito cumprimento das diretrizes estatutárias vigentes e em conformidade com o regulamento sobre a autonomia financeira dos órgãos locais do Partido, o Comité de Acção do Partido 190 (CAP-190) apresenta o presente Memorando de Partilha e Distribuição de Quotas. Este instrumento formaliza e homologa a alocação automática de fundos arrecadados a título de quotas de militantes referentes ao período indicado, distribuindo-os estritamente de acordo com os coeficientes e percentagens estatutárias aplicáveis aos órgãos destinatários, conforme detalhado no quadro demonstrativo abaixo:
+                  </p>
+
+                  {/* Summary block (Only showing distributed value as requested) */}
+                  <div className="border border-emerald-200 rounded-xl p-4 bg-emerald-50/30 text-center max-w-sm mx-auto mb-6 mb-6 font-sans">
+                    <span className="text-[9px] font-black text-emerald-800 uppercase tracking-wider block leading-none">TOTAL PARTILHADO (DISTRIBUÍDO)</span>
+                    <span className="text-lg font-black text-emerald-700 font-mono mt-1.5 block">{formatAKZ(totalDistribuido)}</span>
+                    <span className="text-[8px] text-emerald-600 font-bold block mt-1 uppercase">Soma das Cotas Estatutárias ({totalPercent}%)</span>
+                  </div>
+
+                  {/* Processo de Homologação Campo Visual (Visual Tracker) */}
+                  <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4 space-y-3 font-sans mb-6 no-print" id="report-homologation-tracker">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black text-zinc-800 uppercase tracking-wider block">
+                        Fluxo de Tramitação e Homologação Administrativa
+                      </span>
+                      <span className={`px-2 py-0.5 text-[8px] font-black uppercase tracking-wider rounded ${
+                        isHomologated 
+                          ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                          : "bg-amber-100 text-amber-800 border border-amber-300 animate-pulse"
+                      }`}>
+                        {isHomologated ? "Homologado e Ativo" : "Pendente de Assinaturas"}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-center text-[9px]">
+                      {/* Step 1 */}
+                      <div className={`p-3.5 rounded-lg border flex flex-col justify-between h-20 ${
+                        appState.elaborado?.assinado 
+                          ? "bg-emerald-50/70 border-emerald-200 text-emerald-800" 
+                          : "bg-zinc-100 border-zinc-200 text-zinc-400"
+                      }`}>
+                        <span className="font-extrabold uppercase text-[8px]">1. Submissão (Tesoureiro)</span>
+                        {appState.elaborado?.assinado ? (
+                          <div className="my-1">
+                            <span className="font-serif italic font-black text-[10px] block leading-none text-red-700">{appState.elaborado.nome}</span>
+                            <span className="text-[7px] text-zinc-400 font-mono block mt-1">{appState.elaborado.data.split("-").reverse().join("/")}</span>
+                          </div>
+                        ) : (
+                          <span className="italic block my-2 font-bold text-zinc-400">Pendente</span>
+                        )}
+                        <span className="text-[7.5px] font-bold text-zinc-500 uppercase border-t border-zinc-200/50 pt-1">Tesoureiro CAP-190</span>
+                      </div>
+
+                      {/* Step 2 */}
+                      <div className={`p-3.5 rounded-lg border flex flex-col justify-between h-20 ${
+                        appState.autorizado?.assinado 
+                          ? "bg-emerald-50/70 border-emerald-200 text-emerald-800" 
+                          : "bg-zinc-100 border-zinc-200 text-zinc-400"
+                      }`}>
+                        <span className="font-extrabold uppercase text-[8px]">2. Aprovação (Coordenador)</span>
+                        {appState.autorizado?.assinado ? (
+                          <div className="my-1">
+                            <span className="font-serif italic font-black text-[10px] block leading-none text-red-700">{appState.autorizado.nome}</span>
+                            <span className="text-[7px] text-zinc-400 font-mono block mt-1">{appState.autorizado.data.split("-").reverse().join("/")}</span>
+                          </div>
+                        ) : (
+                          <span className="italic block my-2 font-bold text-zinc-400">Pendente</span>
+                        )}
+                        <span className="text-[7.5px] font-bold text-zinc-500 uppercase border-t border-zinc-200/50 pt-1">Coordenador do CAP-190</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Dynamic Share Distribution Table */}
+                  <div className="mb-6">
+                    <span className="text-[10px] font-black text-zinc-900 uppercase tracking-wider block mb-2 font-sans">
+                      1. Demonstração de Valores Partilhados por Beneficiário
+                    </span>
+                    <table className="w-full text-left border-collapse text-[10px] font-sans">
+                      <thead>
+                        <tr className="bg-zinc-100/80 font-black border-b border-zinc-300 text-zinc-700 uppercase">
+                          <th className="py-2.5 px-3">Beneficiário / Quota Destinatária</th>
+                          <th className="py-2.5 px-3 text-center w-36">Percentagem Aplicada</th>
+                          <th className="py-2.5 px-3 text-right w-44">Valor Partilhado (Kwanza)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-200 font-medium text-zinc-700">
+                        {calculatedShares.map((b) => (
+                          <tr key={b.id}>
+                            <td className="py-2.5 px-3 font-extrabold text-zinc-900">{b.nome}</td>
+                            <td className="py-2.5 px-3 text-center font-mono font-bold text-zinc-700">{b.percentagem}%</td>
+                            <td className="py-2.5 px-3 text-right font-mono font-black text-zinc-950">{formatAKZ(b.valorCalculado)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="border-t-2 border-zinc-900 font-black bg-zinc-50">
+                        <tr className="text-zinc-900 font-bold uppercase">
+                          <td className="py-2.5 px-3">TOTAL REPARTIDO E CONSOLIDADO</td>
+                          <td className="py-2.5 px-3 text-center font-mono">{totalPercent}%</td>
+                          <td className="py-2.5 px-3 text-right font-mono font-extrabold">{formatAKZ(totalDistribuido)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+
+                  {/* 2 Official Signature Blocks */}
+                  <div className="border-t border-dashed border-zinc-300 pt-6 mt-10 print-break-inside-avoid" id="report-signatures">
+                    <span className="text-[10px] font-black text-zinc-900 uppercase tracking-wider text-center block mb-6 font-sans">
+                      2. Submissão e Aprovação (Assinaturas Físicas)
+                    </span>
+
+                    <div className="grid grid-cols-2 gap-8 text-[10px] font-sans">
+                      {/* Box 1: Elaborado por (Tesoureiro) */}
+                      <div className="border border-zinc-200 rounded p-4 text-center flex flex-col justify-between bg-zinc-50/15 min-h-[140px]">
+                        <span className="font-extrabold text-zinc-400 uppercase tracking-wider block text-[8px] leading-none mb-1">
+                          1. SUBMETIDO POR (TESOUREIRO)
+                        </span>
+                        
+                        {/* Physical Signature Line and Name */}
+                        <div className="flex-1 flex flex-col items-center justify-center py-4">
+                          <div className="w-4/5 border-b border-zinc-400 h-6"></div>
+                          <span className="block text-[10px] font-extrabold text-zinc-900 mt-2">
+                            {appState.elaborado?.assinado ? `( ${appState.elaborado.nome} )` : "( ___________________________ )"}
+                          </span>
+                          <span className="text-[7.5px] text-zinc-500 font-mono mt-0.5 block">
+                            {appState.elaborado?.assinado 
+                              ? `Registado em: ${appState.elaborado.data.split("-").reverse().join("/")}`
+                              : "Data: ____/____/2026   [ Carimbo ]"}
+                          </span>
+                        </div>
+
+                        {/* Setup fields - Hidden on print */}
+                        {!appState.elaborado?.assinado && (
+                          <div className="py-1.5 space-y-2 no-print border-t border-zinc-100 pt-2">
+                            <input
+                              type="text"
+                              placeholder="Nome do Tesoureiro"
+                              value={signInputs.elaboradoNome}
+                              onChange={(e) => setSignInputs(prev => ({ ...prev, elaboradoNome: e.target.value }))}
+                              className="w-full px-2 py-1 text-[10px] border border-zinc-300 rounded focus:outline-none bg-white font-bold"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleSign("elaborado")}
+                              className="w-full py-1 bg-red-700 hover:bg-red-800 text-white rounded text-[9px] font-black uppercase cursor-pointer"
+                            >
+                              Submeter Relatório
+                            </button>
+                          </div>
+                        )}
+
+                        <div className="pt-2 border-t border-zinc-200/50">
+                          <span className="font-black text-zinc-800 uppercase text-[9px]">Tesoureiro CAP-190</span>
+                          {appState.elaborado?.assinado && (
+                            <button
+                              type="button"
+                              onClick={() => handleClearSign("elaborado")}
+                              className="text-[8px] text-red-600 font-bold underline hover:text-red-800 block mt-1 mx-auto no-print cursor-pointer"
+                            >
+                              Limpar Registo
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Box 2: Autorizado por (Coordenador do CAP-190) */}
+                      <div className="border border-zinc-200 rounded p-4 text-center flex flex-col justify-between bg-zinc-50/15 min-h-[140px]">
+                        <span className="font-extrabold text-zinc-400 uppercase tracking-wider block text-[8px] leading-none mb-1">
+                          2. APROVADO POR (COORDENADOR)
+                        </span>
+                        
+                        {/* Physical Signature Line and Name */}
+                        <div className="flex-1 flex flex-col items-center justify-center py-4">
+                          <div className="w-4/5 border-b border-zinc-400 h-6"></div>
+                          <span className="block text-[10px] font-extrabold text-zinc-900 mt-2">
+                            {appState.autorizado?.assinado ? `( ${appState.autorizado.nome} )` : "( ___________________________ )"}
+                          </span>
+                          <span className="text-[7.5px] text-zinc-500 font-mono mt-0.5 block">
+                            {appState.autorizado?.assinado 
+                              ? `Registado em: ${appState.autorizado.data.split("-").reverse().join("/")}`
+                              : "Data: ____/____/2026   [ Carimbo ]"}
+                          </span>
+                        </div>
+
+                        {/* Setup fields - Hidden on print */}
+                        {!appState.autorizado?.assinado && (
+                          <div className="py-1.5 space-y-2 no-print border-t border-zinc-100 pt-2">
+                            {appState.elaborado?.assinado ? (
+                              <>
+                                <input
+                                  type="text"
+                                  placeholder="Nome do Coordenador"
+                                  value={signInputs.autorizadoNome}
+                                  onChange={(e) => setSignInputs(prev => ({ ...prev, autorizadoNome: e.target.value }))}
+                                  className="w-full px-2 py-1 text-[10px] border border-zinc-300 rounded focus:outline-none bg-white font-bold"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleSign("autorizado")}
+                                  className="w-full py-1 bg-red-700 hover:bg-red-800 text-white rounded text-[9px] font-black uppercase cursor-pointer"
+                                >
+                                  Aprovar Relatório
+                                </button>
+                              </>
+                            ) : (
+                              <div className="text-[9px] text-zinc-400 italic font-medium py-2.5 bg-zinc-100/50 border border-zinc-200 rounded">
+                                Aguardando Submissão do Tesoureiro
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="pt-2 border-t border-zinc-200/50">
+                          <span className="font-black text-zinc-800 uppercase text-[9px]">Coordenador do CAP-190</span>
+                          {appState.autorizado?.assinado && (
+                            <button
+                              type="button"
+                              onClick={() => handleClearSign("autorizado")}
+                              className="text-[8px] text-red-600 font-bold underline hover:text-red-800 block mt-1 mx-auto no-print cursor-pointer"
+                            >
+                              Limpar Registo
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Stamp Seal and Close Block */}
+                  {isHomologated && (
+                    <div className="mt-10 border-t border-zinc-200 pt-6 flex flex-col items-center justify-center font-sans print-break-inside-avoid">
+                      <div className="border-4 border-emerald-600 text-emerald-600 font-black p-3 rounded-full text-xs uppercase tracking-widest text-center max-w-sm rotate-1 mx-auto leading-none bg-white shadow-xs">
+                        <span className="block font-black text-[13px]">MPLA * APROVADO</span>
+                        <span className="block text-[8px] font-bold mt-1 text-zinc-500 font-mono">REPARTIÇÃO SUBMETIDA E APROVADA</span>
+                        <span className="block text-[8px] font-bold text-zinc-400 font-mono">CÓDIGO DE QUITAÇÃO: CAP190-SHARE-{monthNum}-{yearNum}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Technical Footer */}
+                  <div className="mt-12 text-center text-[8px] text-zinc-400 font-mono uppercase tracking-wider block">
+                    Documento Gerado Automáticamente pelo Módulo de Gestão Financeira CAP-190 * {yearNum}
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Modal Footer (hidden on print) */}
+              <div className="bg-zinc-100 px-5 py-3.5 flex justify-end gap-2 border-t border-zinc-200 no-print">
+                <button
+                  onClick={() => {
+                    setSelectedReportMonth(null);
+                    setSelectedReportYear(null);
+                  }}
+                  className="px-4 py-2 bg-white border border-zinc-300 text-zinc-700 hover:bg-zinc-50 rounded-lg text-xs font-black uppercase tracking-wider shadow-xs cursor-pointer"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 6. Form Modal to Record New Payment */}
       {isFormOpen && (
