@@ -115,6 +115,8 @@ export function QuotasView({
   const [selectedReportMonth, setSelectedReportMonth] = useState<number | null>(null);
   const [selectedReportYear, setSelectedReportYear] = useState<number | null>(null);
   const [reportEmissionDate, setReportEmissionDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [cardReportMonth, setCardReportMonth] = useState<number>(new Date().getMonth() + 1);
+  const [cardReportYear, setCardReportYear] = useState<number>(2026);
 
   // Form states for adding/editing a beneficiary
   const [isAddingBeneficiary, setIsAddingBeneficiary] = useState(false);
@@ -139,6 +141,7 @@ export function QuotasView({
   const [selectedYearFilter, setSelectedYearFilter] = useState<number | "Todos">(2026);
   const [sectorFilter, setSectorFilter] = useState("Todos");
   const [zoneFilter, setZoneFilter] = useState("Todos");
+  const [onlyPendingCurrentMonth, setOnlyPendingCurrentMonth] = useState(false);
 
   // Unique sector and zone lists for filter
   const uniqueSectors = useMemo(() => {
@@ -356,6 +359,17 @@ export function QuotasView({
       result = result.filter(m => m.zona === zoneFilter);
     }
 
+    if (onlyPendingCurrentMonth) {
+      const curMonth = new Date().getMonth() + 1; // 7 (Julho)
+      const curYear = 2026; // Year context of the app
+      result = result.filter(m => {
+        const hasPaid = payments.some(
+          p => p.militanteId === m.id && p.mes === curMonth && p.ano === curYear && p.pago
+        );
+        return !hasPaid;
+      });
+    }
+
     if (searchTerm.trim() !== "") {
       const term = searchTerm.toLowerCase();
       result = result.filter(
@@ -368,7 +382,7 @@ export function QuotasView({
     }
 
     return result;
-  }, [sortedMilitantes, sectorFilter, zoneFilter, searchTerm]);
+  }, [sortedMilitantes, sectorFilter, zoneFilter, onlyPendingCurrentMonth, payments, searchTerm]);
 
   // Matrix generation
   // For each of the first 15 militants, check if they have paid for months 1-12
@@ -462,6 +476,63 @@ export function QuotasView({
     const link = document.createElement("a");
     link.setAttribute("href", url);
     link.setAttribute("download", `pagamentos_cap190_${new Date().toISOString().split("T")[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleExportMatrixCSV = () => {
+    const headers = [
+      "ID Militante",
+      "Nome Completo",
+      "Cartao Partido",
+      "Setor",
+      "Zona",
+      "Estado Cadastral",
+      ...MONTHS_FULL,
+      "Total de Meses Pagos",
+      "Total Contribuido (AKZ)"
+    ];
+
+    const rows = filteredMilitantesForMatrix.map(m => {
+      const monthStatuses = Array.from({ length: 12 }).map((_, idx) => {
+        const monthNum = idx + 1;
+        const p = payments.find(pay => pay.militanteId === m.id && pay.mes === monthNum && pay.ano === matrixYear && pay.pago);
+        return p ? "PAGO" : "PENDENTE";
+      });
+
+      const totalPaidMonths = Array.from({ length: 12 }).filter((_, idx) => {
+        const monthNum = idx + 1;
+        return payments.some(pay => pay.militanteId === m.id && pay.mes === monthNum && pay.ano === matrixYear && pay.pago);
+      }).length;
+
+      const totalValue = payments
+        .filter(pay => pay.militanteId === m.id && pay.ano === matrixYear && pay.pago)
+        .reduce((sum, pay) => sum + pay.valor, 0);
+
+      return [
+        `"${m.id}"`,
+        `"${m.nome.replace(/"/g, '""')}"`,
+        `"${(m.numeroCartao || "").replace(/"/g, '""')}"`,
+        `"${(m.setor || "").replace(/"/g, '""')}"`,
+        `"${(m.zona || "").replace(/"/g, '""')}"`,
+        `"${m.estado}"`,
+        ...monthStatuses,
+        totalPaidMonths,
+        totalValue
+      ];
+    });
+
+    const csvContent = [
+      headers.join(";"),
+      ...rows.map(row => row.join(";"))
+    ].join("\n");
+
+    const blob = new Blob(["\ufeff" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `matriz_arrecadacao_${matrixYear}_${new Date().toISOString().split("T")[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -687,35 +758,62 @@ export function QuotasView({
         </div>
 
         {/* Sector and Zone Filters Row */}
-        <div className="pt-3 border-t border-zinc-100 flex flex-wrap gap-4 items-center text-xs font-bold" id="quota-setor-zona-filters">
-          <span className="text-[10px] uppercase font-extrabold text-zinc-400 tracking-wider">Filtrar por Área:</span>
-          
-          <div className="flex items-center gap-1.5">
-            <span className="text-zinc-500 font-bold">Setor:</span>
-            <select
-              value={sectorFilter}
-              onChange={(e) => { setSectorFilter(e.target.value); setCurrentPage(1); setMatrixPage(0); }}
-              className="px-2.5 py-1 text-xs border border-zinc-300 rounded-md bg-zinc-50 text-zinc-700 hover:bg-zinc-100 cursor-pointer"
-              id="quota-sector-select"
-            >
-              {uniqueSectors.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
+        <div className="pt-3 border-t border-zinc-100 flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs font-bold" id="quota-setor-zona-filters">
+          <div className="flex flex-wrap gap-4 items-center">
+            <span className="text-[10px] uppercase font-extrabold text-zinc-400 tracking-wider">Filtrar por Área:</span>
+            
+            <div className="flex items-center gap-1.5">
+              <span className="text-zinc-500 font-bold">Setor:</span>
+              <select
+                value={sectorFilter}
+                onChange={(e) => { setSectorFilter(e.target.value); setCurrentPage(1); setMatrixPage(0); }}
+                className="px-2.5 py-1 text-xs border border-zinc-300 rounded-md bg-zinc-50 text-zinc-700 hover:bg-zinc-100 cursor-pointer"
+                id="quota-sector-select"
+              >
+                {uniqueSectors.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-zinc-500 font-bold">Zona:</span>
+              <select
+                value={zoneFilter}
+                onChange={(e) => { setZoneFilter(e.target.value); setCurrentPage(1); setMatrixPage(0); }}
+                className="px-2.5 py-1 text-xs border border-zinc-300 rounded-md bg-zinc-50 text-zinc-700 hover:bg-zinc-100 cursor-pointer"
+                id="quota-zone-select"
+              >
+                {uniqueZones.map((z) => (
+                  <option key={z} value={z}>{z}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <span className="text-zinc-500 font-bold">Zona:</span>
-            <select
-              value={zoneFilter}
-              onChange={(e) => { setZoneFilter(e.target.value); setCurrentPage(1); setMatrixPage(0); }}
-              className="px-2.5 py-1 text-xs border border-zinc-300 rounded-md bg-zinc-50 text-zinc-700 hover:bg-zinc-100 cursor-pointer"
-              id="quota-zone-select"
-            >
-              {uniqueZones.map((z) => (
-                <option key={z} value={z}>{z}</option>
-              ))}
-            </select>
+          {/* Quick filter for current month's pending quotas */}
+          <div className="flex items-center">
+            <label className="relative inline-flex items-center cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={onlyPendingCurrentMonth}
+                onChange={(e) => {
+                  setOnlyPendingCurrentMonth(e.target.checked);
+                  setCurrentPage(1);
+                  setMatrixPage(0);
+                  if (e.target.checked && quotaSubTab === "LIST") {
+                    setQuotaSubTab("MATRIX");
+                  }
+                }}
+                className="sr-only peer"
+                id="quota-pending-current-month-checkbox"
+              />
+              <div className="w-8 h-4 bg-zinc-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-red-600"></div>
+              <span className="ml-2 text-xs font-black text-red-700 uppercase tracking-tight flex items-center gap-1">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-500 animate-bounce" />
+                Apenas Não Regularizados ({MONTHS_FULL[new Date().getMonth()]} 2026)
+              </span>
+            </label>
           </div>
         </div>
       </div>
@@ -724,6 +822,12 @@ export function QuotasView({
       {/* 4. Sub-tab Content: History List of Payments */}
       {quotaSubTab === "LIST" && (
         <div className="space-y-4" id="quotas-list-content">
+          {onlyPendingCurrentMonth && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-950 rounded-lg p-3 text-xs font-bold flex items-center gap-2 animate-in fade-in" id="list-pending-filter-alert">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>O filtro de "Apenas Não Regularizados" está ativo. Para visualizar a checklist de membros pendentes, consulte a <strong className="cursor-pointer underline text-red-700" onClick={() => setQuotaSubTab("MATRIX")}>Matriz de Quotas (Checklist)</strong>.</span>
+            </div>
+          )}
           {/* Table list */}
           <div className="bg-white rounded-lg border border-zinc-200 shadow-sm overflow-hidden" id="payments-table-container">
             <div className="overflow-x-auto">
@@ -883,6 +987,21 @@ export function QuotasView({
                 <span className="font-extrabold"> Clique em qualquer célula</span> para alternar ou criar rapidamente um pagamento padrão de 10.000 AKZ para o ano de {matrixYear}!
               </p>
             </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-zinc-50 border border-zinc-200 rounded-lg p-3 animate-in fade-in" id="matrix-export-action-bar">
+            <div className="text-xs text-zinc-500 font-bold">
+              Estão listados <span className="text-zinc-950 font-extrabold">{filteredMilitantesForMatrix.length}</span> militantes sob as regras de filtro actuais.
+            </div>
+            <button
+              onClick={handleExportMatrixCSV}
+              className="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-black text-white bg-emerald-700 hover:bg-emerald-800 rounded shadow-sm transition-all cursor-pointer select-none no-print"
+              id="export-matrix-csv-btn"
+              title="Exportar checklist anual consolidada com status de todos os meses para Excel"
+            >
+              <FileText className="w-4 h-4 text-yellow-300 shrink-0" />
+              <span>Exportar Matriz {matrixYear} (CSV)</span>
+            </button>
           </div>
 
           <div className="bg-white rounded-lg border border-zinc-200 shadow-sm overflow-hidden" id="matrix-container">
@@ -1126,35 +1245,179 @@ export function QuotasView({
                 )}
               </div>
 
-              {/* Percentages Summary and Warning Block */}
+              {/* Percentages Summary and Warning Block with Presets & Auto-Balance */}
               {(() => {
                 const totalPercent = beneficiarios.reduce((sum, b) => sum + b.percentagem, 0);
                 const saldoPercent = Math.max(0, 100 - totalPercent);
+
+                const handleAutoBalance = () => {
+                  if (beneficiarios.length === 0) return;
+                  if (totalPercent === 100) return;
+
+                  if (totalPercent === 0) {
+                    const count = beneficiarios.length;
+                    const base = Math.floor(100 / count);
+                    const remainder = 100 % count;
+                    const balanced = beneficiarios.map((b, idx) => ({
+                      ...b,
+                      percentagem: base + (idx < remainder ? 1 : 0)
+                    }));
+                    saveBeneficiarios(balanced);
+                    return;
+                  }
+
+                  let runningSum = 0;
+                  const balanced = beneficiarios.map((b, idx) => {
+                    if (idx === beneficiarios.length - 1) {
+                      return {
+                        ...b,
+                        percentagem: 100 - runningSum
+                      };
+                    }
+                    const newVal = Math.round((b.percentagem / totalPercent) * 100);
+                    runningSum += newVal;
+                    return {
+                      ...b,
+                      percentagem: newVal
+                    };
+                  });
+                  saveBeneficiarios(balanced);
+                };
+
                 return (
-                  <div className="pt-3 border-t border-zinc-200 space-y-2 text-xs font-bold">
+                  <div className="pt-3 border-t border-zinc-200 space-y-3.5 text-xs font-bold">
+                    {/* Preset Configurations */}
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-zinc-400 font-extrabold uppercase block">
+                        Modelos de Partilha (Exemplos)
+                      </span>
+                      <select
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val === "comite_partido_reserva") {
+                            saveBeneficiarios([
+                              { id: "comite", nome: "Comité Local (CAP-190)", percentagem: 50 },
+                              { id: "partido", nome: "Partido Geral (Org. Superior)", percentagem: 30 },
+                              { id: "fundo_reserva", nome: "Fundo Reserva e Apoio", percentagem: 20 },
+                            ]);
+                          } else if (val === "padrao") {
+                            saveBeneficiarios([
+                              { id: "cap190", nome: "CAP-190 (Comité Local)", percentagem: 40 },
+                              { id: "distrito", nome: "Comité de Distrito", percentagem: 25 },
+                              { id: "provincial", nome: "Comité Provincial", percentagem: 15 },
+                              { id: "central", nome: "Comité Central", percentagem: 10 },
+                              { id: "solidariedade", nome: "Fundo de Solidariedade Social", percentagem: 10 },
+                            ]);
+                          } else if (val === "bipartido") {
+                            saveBeneficiarios([
+                              { id: "comite", nome: "Comité Local", percentagem: 60 },
+                              { id: "fundo_reserva", nome: "Fundo Reserva", percentagem: 40 },
+                            ]);
+                          }
+                          e.target.value = ""; // reset index
+                        }}
+                        className="w-full px-2 py-1.5 text-xs border border-zinc-300 rounded focus:outline-none bg-zinc-50 font-black text-zinc-700 cursor-pointer"
+                        id="preset-presets-selector"
+                      >
+                        <option value="">-- Escolher Modelo Rápido 100% --</option>
+                        <option value="comite_partido_reserva">Comitê (50%), Partido (30%), Fundo Reserva (20%)</option>
+                        <option value="padrao">Padrão Oficial (5 Órgãos - 40% / 25% / 15% / 10% / 10%)</option>
+                        <option value="bipartido">Bipartido Local (Comitê 60%, Fundo Reserva 40%)</option>
+                      </select>
+                    </div>
+
                     <div className="flex justify-between items-center text-zinc-600">
                       <span>Total Configurado:</span>
-                      <span className={totalPercent > 100 ? "text-red-600 font-black" : "text-zinc-900 font-black"}>
+                      <span className={totalPercent !== 100 ? "text-red-600 font-extrabold flex items-center gap-1 bg-red-50 px-1.5 py-0.5 rounded" : "text-emerald-700 font-extrabold flex items-center gap-1 bg-emerald-50 px-1.5 py-0.5 rounded"}>
                         {totalPercent}%
+                        {totalPercent === 100 && <Check className="w-3.5 h-3.5" />}
                       </span>
                     </div>
 
-                    <div className="flex justify-between items-center text-zinc-600">
-                      <span>Saldo Retido no CAP:</span>
-                      <span className="text-emerald-600 font-black">
-                        {saldoPercent}%
-                      </span>
-                    </div>
-
-                    {totalPercent > 100 ? (
-                      <div className="p-2.5 bg-red-50 border border-red-200 text-red-800 rounded text-[10px] leading-relaxed">
-                        <strong>⚠️ Percentagem Excedida:</strong> A soma das regras é {totalPercent}%, o que excede o limite absoluto de 100%. Por favor, reduza os valores antes de emitir relatórios.
-                      </div>
-                    ) : (
-                      <div className="p-2.5 bg-zinc-50 border border-zinc-200 text-zinc-500 rounded text-[10px] leading-relaxed font-medium">
-                        * Qualquer diferença entre a soma e 100% ({saldoPercent}%) é contabilizada como <strong>Saldo Local</strong> residual na conta corrente do CAP-190.
+                    {totalPercent !== 100 && (
+                      <div className="flex justify-between items-center text-zinc-600">
+                        <span>Saldo Pendente:</span>
+                        <span className="text-zinc-900 font-mono font-black">{100 - totalPercent}%</span>
                       </div>
                     )}
+
+                    {totalPercent !== 100 ? (
+                      <div className="p-2.5 bg-amber-50 border border-amber-200 text-amber-800 rounded text-[10px] leading-relaxed space-y-1.5">
+                        <div className="flex items-start gap-1">
+                          <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
+                          <span>
+                            <strong>Regra de Negócio:</strong> A soma das percentagens deve ser de <strong>exatamente 100%</strong> para obter um relatório homologável. Atualmente está em {totalPercent}%.
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleAutoBalance}
+                          className="w-full py-1 px-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded text-[9px] font-black uppercase flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                        >
+                          <Check className="w-3 h-3 text-yellow-300" />
+                          <span>Auto-Equilibrar para 100%</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="p-2 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded text-[10px] leading-relaxed flex items-start gap-1 font-medium">
+                        <Check className="w-4 h-4 shrink-0 text-emerald-600 mt-0.5" />
+                        <span>As regras de distribuição somam exatamente 100% e estão prontas para homologação!</span>
+                      </div>
+                    )}
+
+                    {/* Fast Report Generator in Card */}
+                    <div className="pt-3 border-t border-zinc-200 mt-2 space-y-2.5">
+                      <span className="text-[10px] font-black uppercase text-zinc-500 block tracking-wider">
+                        Gerar Relatório do Mês
+                      </span>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[9px] text-zinc-400 font-bold block uppercase mb-1">Mês</label>
+                          <select
+                            value={cardReportMonth}
+                            onChange={(e) => setCardReportMonth(parseInt(e.target.value, 10))}
+                            className="w-full px-2 py-1.5 text-xs border border-zinc-300 rounded focus:outline-none bg-white font-bold"
+                          >
+                            {MONTHS_FULL.map((m, i) => (
+                              <option key={i} value={i + 1}>{m}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[9px] text-zinc-400 font-bold block uppercase mb-1">Ano</label>
+                          <select
+                            value={cardReportYear}
+                            onChange={(e) => setCardReportYear(parseInt(e.target.value, 10))}
+                            className="w-full px-2 py-1.5 text-xs border border-zinc-300 rounded focus:outline-none bg-white font-mono font-bold"
+                          >
+                            <option value={2025}>2025</option>
+                            <option value={2026}>2026</option>
+                            <option value={2027}>2027</option>
+                            <option value={2028}>2028</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedReportMonth(cardReportMonth);
+                          setSelectedReportYear(cardReportYear);
+                          setReportEmissionDate(new Date().toISOString().split("T")[0]);
+                        }}
+                        className={`w-full py-2 text-white rounded-lg text-xs font-black uppercase flex items-center justify-center gap-1.5 shadow-sm transition-all ${
+                          totalPercent === 100
+                            ? "bg-red-700 hover:bg-red-800 cursor-pointer"
+                            : "bg-zinc-400 cursor-not-allowed opacity-60"
+                        }`}
+                        id="generate-card-report-btn"
+                        disabled={totalPercent !== 100}
+                        title={totalPercent !== 100 ? "A soma das regras deve ser de exatamente 100%." : "Gerar Relatório"}
+                      >
+                        <FileText className="w-4 h-4 text-yellow-300" />
+                        <span>Gerar Relatório Oficial</span>
+                      </button>
+                    </div>
                   </div>
                 );
               })()}
@@ -1222,24 +1485,27 @@ export function QuotasView({
                       const approvalKey = `${monthNum}-${yearNum}`;
                       const appState = approvals[approvalKey] || {};
                       
-                      const isAprovado = !!(appState.elaborado?.assinado && appState.autorizado?.assinado);
-                      const isSubmetido = !!appState.elaborado?.assinado;
+                      let signedCount = 0;
+                      if (appState.elaborado?.assinado) signedCount++;
+                      if (appState.verificado?.assinado) signedCount++;
+                      if (appState.aprovado?.assinado) signedCount++;
+                      if (appState.autorizado?.assinado) signedCount++;
 
                       let statusBadge = (
                         <span className="inline-block px-2 py-0.5 rounded text-[9px] font-black bg-zinc-100 text-zinc-400 border border-zinc-200 uppercase">
-                          PENDENTE
+                          PENDENTE (0/4)
                         </span>
                       );
-                      if (isAprovado) {
+                      if (signedCount === 4) {
                         statusBadge = (
                           <span className="inline-block px-2 py-0.5 rounded text-[9px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200 uppercase">
-                            ✓ APROVADO
+                            ✓ HOMOLOGADO
                           </span>
                         );
-                      } else if (isSubmetido) {
+                      } else if (signedCount > 0) {
                         statusBadge = (
-                          <span className="inline-block px-2 py-0.5 rounded text-[9px] font-black bg-blue-50 text-blue-700 border border-blue-200 uppercase">
-                            SUBMETIDO
+                          <span className="inline-block px-2 py-0.5 rounded text-[9px] font-black bg-amber-50 text-amber-700 border border-amber-200 uppercase">
+                            PROCESSANDO ({signedCount}/4)
                           </span>
                         );
                       }
@@ -1269,7 +1535,7 @@ export function QuotasView({
                             {statusBadge}
                           </td>
 
-                          <td className="py-3 px-3 text-right">
+                           <td className="py-3 px-3 text-right">
                             <button
                               type="button"
                               onClick={() => {
@@ -1277,10 +1543,17 @@ export function QuotasView({
                                 setSelectedReportYear(yearNum);
                                 setReportEmissionDate(new Date().toISOString().split("T")[0]);
                               }}
-                              className="px-2.5 py-1 text-[10px] font-black uppercase rounded bg-red-700 hover:bg-red-800 text-white cursor-pointer shadow-xs transition-colors flex items-center gap-1 ml-auto"
+                              disabled={totalPercent !== 100}
+                              className={`px-2.5 py-1 text-[10px] font-black uppercase rounded text-white shadow-xs transition-all flex items-center gap-1.5 ml-auto ${
+                                totalPercent === 100
+                                  ? "bg-red-700 hover:bg-red-800 cursor-pointer"
+                                  : "bg-zinc-400 cursor-not-allowed opacity-50"
+                              }`}
+                              id={`generate-report-btn-${monthNum}`}
+                              title={totalPercent !== 100 ? "A soma das regras de partilha deve ser de exatamente 100% para emitir relatórios." : "Gerar Relatório de Partilha"}
                             >
                               <FileText className="w-3.5 h-3.5 text-yellow-300" />
-                              <span>Relatório</span>
+                              <span>Gerar Relatório</span>
                             </button>
                           </td>
                         </tr>
@@ -1519,9 +1792,9 @@ export function QuotasView({
                     <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg p-3.5 flex items-start gap-3">
                       <div className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0 mt-0.5 font-bold">✓</div>
                       <div>
-                        <h5 className="font-extrabold uppercase text-xs">Relatório Submetido e Aprovado</h5>
+                        <h5 className="font-extrabold uppercase text-xs">Documento Homologado com Sucesso</h5>
                         <p className="text-[11px] text-emerald-700 mt-0.5 font-medium leading-relaxed">
-                          Este relatório de partilha de quotas foi devidamente <strong>submetido pelo Tesoureiro</strong> e <strong>aprovado pelo Coordenador Geral</strong>. O documento está ativo e validado.
+                          Este relatório oficial de partilha de quotas possui todas as assinaturas exigidas. O documento é considerado <strong>juridicamente ativo e válido</strong> para os órgãos executivos e órgãos de fiscalização partidária.
                         </p>
                       </div>
                     </div>
@@ -1529,9 +1802,9 @@ export function QuotasView({
                     <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-3.5 flex items-start gap-3">
                       <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5 animate-pulse" />
                       <div>
-                        <h5 className="font-extrabold uppercase text-xs text-amber-950">Aviso: Relatório Pendente de Aprovação</h5>
+                        <h5 className="font-extrabold uppercase text-xs text-amber-950">Aviso: Relatório Pendente de Homologação</h5>
                         <p className="text-[11px] text-amber-700 mt-0.5 font-medium leading-relaxed">
-                          Este documento <strong>não é considerado definitivo</strong> até que o Tesoureiro realize a submissão e o Coordenador faça a respetiva aprovação. Atualmente encontra-se sob o estatuto de <strong>"Rascunho de Trabalho"</strong>.
+                          Este documento <strong>não é considerado válido</strong> até que as duas entidades responsáveis tenham rubricado as respetivas assinaturas. Atualmente encontra-se sob o estatuto de <strong>"Rascunho de Trabalho"</strong>.
                         </p>
                       </div>
                     </div>
@@ -1553,7 +1826,7 @@ export function QuotasView({
                         className="text-red-700 text-5xl font-black tracking-widest border-8 border-red-700 p-6 uppercase leading-none rounded-2xl whitespace-nowrap"
                         style={{ transform: "rotate(-30deg)" }}
                       >
-                        PENDENTE DE APROVAÇÃO
+                        SEM VALIDADE LEGAL * RASCUNHO
                       </span>
                     </div>
                   )}
@@ -1628,7 +1901,7 @@ export function QuotasView({
                           ? "bg-emerald-50/70 border-emerald-200 text-emerald-800" 
                           : "bg-zinc-100 border-zinc-200 text-zinc-400"
                       }`}>
-                        <span className="font-extrabold uppercase text-[8px]">1. Submissão (Tesoureiro)</span>
+                        <span className="font-extrabold uppercase text-[8px]">1. Elaboração</span>
                         {appState.elaborado?.assinado ? (
                           <div className="my-1">
                             <span className="font-serif italic font-black text-[10px] block leading-none text-red-700">{appState.elaborado.nome}</span>
@@ -1646,7 +1919,7 @@ export function QuotasView({
                           ? "bg-emerald-50/70 border-emerald-200 text-emerald-800" 
                           : "bg-zinc-100 border-zinc-200 text-zinc-400"
                       }`}>
-                        <span className="font-extrabold uppercase text-[8px]">2. Aprovação (Coordenador)</span>
+                        <span className="font-extrabold uppercase text-[8px]">2. Homologação &amp; Autorização</span>
                         {appState.autorizado?.assinado ? (
                           <div className="my-1">
                             <span className="font-serif italic font-black text-[10px] block leading-none text-red-700">{appState.autorizado.nome}</span>
@@ -1695,14 +1968,14 @@ export function QuotasView({
                   {/* 2 Official Signature Blocks */}
                   <div className="border-t border-dashed border-zinc-300 pt-6 mt-10 print-break-inside-avoid" id="report-signatures">
                     <span className="text-[10px] font-black text-zinc-900 uppercase tracking-wider text-center block mb-6 font-sans">
-                      2. Submissão e Aprovação (Assinaturas Físicas)
+                      2. Homologação e Assinaturas Físicas (Rubrica Manual)
                     </span>
 
                     <div className="grid grid-cols-2 gap-8 text-[10px] font-sans">
                       {/* Box 1: Elaborado por (Tesoureiro) */}
                       <div className="border border-zinc-200 rounded p-4 text-center flex flex-col justify-between bg-zinc-50/15 min-h-[140px]">
                         <span className="font-extrabold text-zinc-400 uppercase tracking-wider block text-[8px] leading-none mb-1">
-                          1. SUBMETIDO POR (TESOUREIRO)
+                          1. ELABORADO POR
                         </span>
                         
                         {/* Physical Signature Line and Name */}
@@ -1733,7 +2006,7 @@ export function QuotasView({
                               onClick={() => handleSign("elaborado")}
                               className="w-full py-1 bg-red-700 hover:bg-red-800 text-white rounded text-[9px] font-black uppercase cursor-pointer"
                             >
-                              Submeter Relatório
+                              Registar Assinatura
                             </button>
                           </div>
                         )}
@@ -1755,7 +2028,7 @@ export function QuotasView({
                       {/* Box 2: Autorizado por (Coordenador do CAP-190) */}
                       <div className="border border-zinc-200 rounded p-4 text-center flex flex-col justify-between bg-zinc-50/15 min-h-[140px]">
                         <span className="font-extrabold text-zinc-400 uppercase tracking-wider block text-[8px] leading-none mb-1">
-                          2. APROVADO POR (COORDENADOR)
+                          2. HOMOLOGADO E AUTORIZADO POR
                         </span>
                         
                         {/* Physical Signature Line and Name */}
@@ -1774,28 +2047,20 @@ export function QuotasView({
                         {/* Setup fields - Hidden on print */}
                         {!appState.autorizado?.assinado && (
                           <div className="py-1.5 space-y-2 no-print border-t border-zinc-100 pt-2">
-                            {appState.elaborado?.assinado ? (
-                              <>
-                                <input
-                                  type="text"
-                                  placeholder="Nome do Coordenador"
-                                  value={signInputs.autorizadoNome}
-                                  onChange={(e) => setSignInputs(prev => ({ ...prev, autorizadoNome: e.target.value }))}
-                                  className="w-full px-2 py-1 text-[10px] border border-zinc-300 rounded focus:outline-none bg-white font-bold"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => handleSign("autorizado")}
-                                  className="w-full py-1 bg-red-700 hover:bg-red-800 text-white rounded text-[9px] font-black uppercase cursor-pointer"
-                                >
-                                  Aprovar Relatório
-                                </button>
-                              </>
-                            ) : (
-                              <div className="text-[9px] text-zinc-400 italic font-medium py-2.5 bg-zinc-100/50 border border-zinc-200 rounded">
-                                Aguardando Submissão do Tesoureiro
-                              </div>
-                            )}
+                            <input
+                              type="text"
+                              placeholder="Nome do Coordenador"
+                              value={signInputs.autorizadoNome}
+                              onChange={(e) => setSignInputs(prev => ({ ...prev, autorizadoNome: e.target.value }))}
+                              className="w-full px-2 py-1 text-[10px] border border-zinc-300 rounded focus:outline-none bg-white font-bold"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleSign("autorizado")}
+                              className="w-full py-1 bg-red-700 hover:bg-red-800 text-white rounded text-[9px] font-black uppercase cursor-pointer"
+                            >
+                              Registar Assinatura
+                            </button>
                           </div>
                         )}
 
@@ -1819,8 +2084,8 @@ export function QuotasView({
                   {isHomologated && (
                     <div className="mt-10 border-t border-zinc-200 pt-6 flex flex-col items-center justify-center font-sans print-break-inside-avoid">
                       <div className="border-4 border-emerald-600 text-emerald-600 font-black p-3 rounded-full text-xs uppercase tracking-widest text-center max-w-sm rotate-1 mx-auto leading-none bg-white shadow-xs">
-                        <span className="block font-black text-[13px]">MPLA * APROVADO</span>
-                        <span className="block text-[8px] font-bold mt-1 text-zinc-500 font-mono">REPARTIÇÃO SUBMETIDA E APROVADA</span>
+                        <span className="block font-black text-[13px]">MPLA * HOMOLOGADO</span>
+                        <span className="block text-[8px] font-bold mt-1 text-zinc-500 font-mono">REPARTIÇÃO CONCLUÍDA E VALIDADA</span>
                         <span className="block text-[8px] font-bold text-zinc-400 font-mono">CÓDIGO DE QUITAÇÃO: CAP190-SHARE-{monthNum}-{yearNum}</span>
                       </div>
                     </div>
