@@ -1125,19 +1125,31 @@ export function QuotasView({
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Rules and Configuration Panel */}
             <div className="lg:col-span-1 bg-white rounded-lg border border-zinc-200 p-4 shadow-sm space-y-4">
-              <div className="border-b border-zinc-200 pb-2">
-                <span className="text-xs font-black text-zinc-900 uppercase tracking-wider block">
-                  Regras de Partilha (%)
-                </span>
+              <div 
+                className="border-b border-zinc-200 pb-2 cursor-pointer hover:bg-zinc-50 p-1.5 rounded-lg transition-all"
+                onClick={() => {
+                  setSelectedReportMonth(cardReportMonth);
+                  setSelectedReportYear(cardReportYear);
+                  setReportEmissionDate(new Date().toISOString().split("T")[0]);
+                }}
+                title="Clique para Visualizar o Relatório de Partilha"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-zinc-900 uppercase tracking-wider block">
+                    Regras de Partilha (%)
+                  </span>
+                  <span className="text-[9px] text-red-600 font-bold uppercase underline">
+                    Visualizar Relatório
+                  </span>
+                </div>
                 <span className="text-[10px] text-zinc-400 font-bold block mt-0.5">
-                  Configure as percentagens de destino para cada órgão/quota.
+                  Percentagens de destino por quota. Clique aqui para abrir o relatório.
                 </span>
               </div>
 
-              {/* List of Beneficiaries with edit controls */}
+              {/* List of Beneficiaries - read-only to satisfy requirement */}
               <div className="space-y-3">
-                {beneficiarios.map((b) => {
-                  const totalPercent = beneficiarios.reduce((sum, x) => sum + x.percentagem, 0);
+                {beneficiarios.filter(b => b.percentagem > 0).map((b) => {
                   return (
                     <div key={b.id} className="flex items-center justify-between gap-2 bg-zinc-50 p-2.5 rounded border border-zinc-200">
                       <div className="leading-tight flex-1">
@@ -1149,101 +1161,19 @@ export function QuotasView({
                             type="number"
                             min="0"
                             max="100"
+                            disabled
                             value={b.percentagem}
-                            onChange={(e) => {
-                              const val = Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0));
-                              const updated = beneficiarios.map(x => x.id === b.id ? { ...x, percentagem: val } : x);
-                              saveBeneficiarios(updated);
-                            }}
-                            className="w-full text-right pr-4 py-1 text-xs font-bold border border-zinc-300 rounded focus:outline-none focus:ring-1 focus:ring-red-600 focus:border-red-600 font-mono bg-white"
+                            className="w-full text-right pr-4 py-1 text-xs font-bold border border-zinc-200 rounded font-mono bg-zinc-100 text-zinc-500 cursor-not-allowed"
                           />
                           <span className="absolute right-1 top-1.5 text-[9px] text-zinc-400 font-bold">%</span>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const updated = beneficiarios.filter(x => x.id !== b.id);
-                            saveBeneficiarios(updated);
-                          }}
-                          className="p-1 hover:text-red-600 text-zinc-400 hover:bg-red-50 rounded transition-colors cursor-pointer"
-                          title="Remover Beneficiário"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
                       </div>
                     </div>
                   );
                 })}
-
-                {/* Add Beneficiary Inline Form */}
-                {isAddingBeneficiary ? (
-                  <div className="bg-zinc-100 p-3 rounded-lg border border-zinc-300 space-y-2.5 animate-in fade-in duration-150">
-                    <span className="text-[10px] font-black uppercase text-zinc-600 block">Novo Destinatário</span>
-                    
-                    <div className="space-y-1">
-                      <label className="text-[9px] text-zinc-500 font-bold block">Nome do Beneficiário / Quota</label>
-                      <input
-                        type="text"
-                        placeholder="Ex: Comité de Zona"
-                        value={newBenefNome}
-                        onChange={(e) => setNewBenefNome(e.target.value)}
-                        className="w-full px-2 py-1 text-xs border border-zinc-300 rounded focus:outline-none bg-white font-bold"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[9px] text-zinc-500 font-bold block">Percentagem (%)</label>
-                      <input
-                        type="number"
-                        min="1"
-                        max="100"
-                        value={newBenefPct}
-                        onChange={(e) => setNewBenefPct(parseInt(e.target.value, 10) || 0)}
-                        className="w-full px-2 py-1 text-xs border border-zinc-300 rounded focus:outline-none bg-white font-mono font-bold"
-                      />
-                    </div>
-
-                    <div className="flex justify-end gap-1.5 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsAddingBeneficiary(false);
-                          setNewBenefNome("");
-                        }}
-                        className="px-2 py-1 text-[10px] bg-zinc-200 hover:bg-zinc-300 rounded text-zinc-700 font-black uppercase cursor-pointer"
-                      >
-                        Cancelar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!newBenefNome.trim()) return;
-                          const newId = "benef_" + Date.now();
-                          saveBeneficiarios([...beneficiarios, { id: newId, nome: newBenefNome, percentagem: newBenefPct }]);
-                          setIsAddingBeneficiary(false);
-                          setNewBenefNome("");
-                        }}
-                        className="px-2.5 py-1 text-[10px] bg-red-700 hover:bg-red-800 text-white rounded font-black uppercase cursor-pointer"
-                      >
-                        Adicionar
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsAddingBeneficiary(true);
-                      setNewBenefNome("");
-                      setNewBenefPct(5);
-                    }}
-                    className="w-full py-2 bg-zinc-50 hover:bg-zinc-100 border border-dashed border-zinc-300 hover:border-zinc-400 text-zinc-500 hover:text-zinc-800 rounded-lg text-xs font-black uppercase flex items-center justify-center gap-1.5 cursor-pointer transition-all"
-                  >
-                    <Plus className="w-4 h-4 text-emerald-600" />
-                    <span>Adicionar Destinatário</span>
-                  </button>
-                )}
               </div>
+
+                {/* O formulário manual de adição de destinatários está inativo para preservar a estabilidade das regras de partilha estatutárias */}
 
               {/* Percentages Summary and Warning Block with Presets & Auto-Balance */}
               {(() => {
@@ -1303,14 +1233,22 @@ export function QuotasView({
                           } else if (val === "padrao") {
                             saveBeneficiarios([
                               { id: "cap190", nome: "CAP-190 (Comité Local)", percentagem: 40 },
-                              { id: "distrito", nome: "Comité de Distrito", percentagem: 25 },
-                              { id: "provincial", nome: "Comité Provincial", percentagem: 15 },
-                              { id: "central", nome: "Comité Central", percentagem: 10 },
+                              { id: "distrito", nome: "Comité de Distrito (Ingombota)", percentagem: 25 },
+                              { id: "provincial", nome: "Comité Provincial (Luanda)", percentagem: 15 },
+                              { id: "central", nome: "Comité Central (Nacional)", percentagem: 10 },
                               { id: "solidariedade", nome: "Fundo de Solidariedade Social", percentagem: 10 },
+                            ]);
+                          } else if (val === "cc_cap_15_85") {
+                            saveBeneficiarios([
+                              { id: "cap190", nome: "CAP-190 (Comité Local)", percentagem: 85 },
+                              { id: "distrito", nome: "Comité de Distrito (Ingombota)", percentagem: 0 },
+                              { id: "provincial", nome: "Comité Provincial (Luanda)", percentagem: 0 },
+                              { id: "central", nome: "Comité Central (Nacional)", percentagem: 15 },
+                              { id: "solidariedade", nome: "Fundo de Solidariedade Social", percentagem: 0 },
                             ]);
                           } else if (val === "bipartido") {
                             saveBeneficiarios([
-                              { id: "comite", nome: "Comité Local", percentagem: 60 },
+                              { id: "comite", nome: "Comité Local (CAP-190)", percentagem: 60 },
                               { id: "fundo_reserva", nome: "Fundo Reserva", percentagem: 40 },
                             ]);
                           }
@@ -1320,8 +1258,9 @@ export function QuotasView({
                         id="preset-presets-selector"
                       >
                         <option value="">-- Escolher Modelo Rápido 100% --</option>
+                        <option value="cc_cap_15_85">Modelo Comité Central (15%) e CAP (85%)</option>
+                        <option value="padrao">Padrão Estatutário (CAP 40%, Distrito 25%, Prov. 15%, Central 10%, Solid. 10%)</option>
                         <option value="comite_partido_reserva">Comitê (50%), Partido (30%), Fundo Reserva (20%)</option>
-                        <option value="padrao">Padrão Oficial (5 Órgãos - 40% / 25% / 15% / 10% / 10%)</option>
                         <option value="bipartido">Bipartido Local (Comitê 60%, Fundo Reserva 40%)</option>
                       </select>
                     </div>
@@ -1368,7 +1307,7 @@ export function QuotasView({
                     {/* Fast Report Generator in Card */}
                     <div className="pt-3 border-t border-zinc-200 mt-2 space-y-2.5">
                       <span className="text-[10px] font-black uppercase text-zinc-500 block tracking-wider">
-                        Gerar Relatório do Mês
+                        Visualizar Relatório do Mês
                       </span>
                       <div className="grid grid-cols-2 gap-2">
                         <div>
@@ -1412,10 +1351,10 @@ export function QuotasView({
                         }`}
                         id="generate-card-report-btn"
                         disabled={totalPercent !== 100}
-                        title={totalPercent !== 100 ? "A soma das regras deve ser de exatamente 100%." : "Gerar Relatório"}
+                        title={totalPercent !== 100 ? "A soma das regras deve ser de exatamente 100%." : "Gerar o Relatório Oficial"}
                       >
                         <FileText className="w-4 h-4 text-yellow-300" />
-                        <span>Gerar Relatório Oficial</span>
+                        <span>Gerar o Relatório Oficial</span>
                       </button>
                     </div>
                   </div>
@@ -1550,10 +1489,10 @@ export function QuotasView({
                                   : "bg-zinc-400 cursor-not-allowed opacity-50"
                               }`}
                               id={`generate-report-btn-${monthNum}`}
-                              title={totalPercent !== 100 ? "A soma das regras de partilha deve ser de exatamente 100% para emitir relatórios." : "Gerar Relatório de Partilha"}
+                              title={totalPercent !== 100 ? "A soma das regras de partilha deve ser de exatamente 100% para visualizar relatórios." : "Visualizar Relatório de Partilha"}
                             >
                               <FileText className="w-3.5 h-3.5 text-yellow-300" />
-                              <span>Gerar Relatório</span>
+                              <span>Visualizar</span>
                             </button>
                           </td>
                         </tr>
@@ -1582,13 +1521,15 @@ export function QuotasView({
         const totalPercent = beneficiarios.reduce((sum, b) => sum + b.percentagem, 0);
         const saldoPercent = Math.max(0, 100 - totalPercent);
 
-        const calculatedShares = beneficiarios.map(b => {
-          const shareVal = Math.round(totalArrecadado * (b.percentagem / 100));
-          return {
-            ...b,
-            valorCalculado: shareVal
-          };
-        });
+        const calculatedShares = beneficiarios
+          .filter(b => b.percentagem > 0)
+          .map(b => {
+            const shareVal = Math.round(totalArrecadado * (b.percentagem / 100));
+            return {
+              ...b,
+              valorCalculado: shareVal
+            };
+          });
 
         const totalDistribuido = calculatedShares.reduce((sum, b) => sum + b.valorCalculado, 0);
         const saldoResidual = totalArrecadado - totalDistribuido;
@@ -2101,6 +2042,18 @@ export function QuotasView({
 
               {/* Modal Footer (hidden on print) */}
               <div className="bg-zinc-100 px-5 py-3.5 flex justify-end gap-2 border-t border-zinc-200 no-print">
+                <button
+                  onClick={() => {
+                    saveApprovals(approvals);
+                    alert("Relatório de partilha e assinaturas salvos com sucesso!");
+                    setSelectedReportMonth(null);
+                    setSelectedReportYear(null);
+                  }}
+                  className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-black uppercase tracking-wider shadow-xs cursor-pointer flex items-center gap-1.5"
+                >
+                  <Check className="w-4 h-4 text-yellow-300" />
+                  <span>Salvar</span>
+                </button>
                 <button
                   onClick={() => {
                     setSelectedReportMonth(null);
