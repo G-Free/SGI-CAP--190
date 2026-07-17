@@ -7,7 +7,7 @@ import { jsPDF } from "jspdf";
 import { Militante, QuotaPayment } from "../types";
 
 export interface PDFExportOptions {
-  activeReport: "LISTA_GERAL" | "BALANCO_FINANCEIRO" | "INACTIVOS_SUSPENSOS" | "MILITANTES_DIVIDA";
+  activeReport: "LISTA_GERAL" | "BALANCO_FINANCEIRO" | "INACTIVOS_SUSPENSOS" | "MILITANTES_DIVIDA" | "BALANCO_SEMESTRAL";
   bairroFilter: string;
   generoFilter: string;
   anoAdmissaoFilter: string;
@@ -178,6 +178,11 @@ export function generateReportPDF(
   if (activeReport === "LISTA_GERAL") title = "RELATORIO DE LISTAGEM GERAL DE MILITANTES";
   else if (activeReport === "BALANCO_FINANCEIRO") title = "BALANCO FINANCEIRO DE ARRECADACAO DE QUOTAS - 2026";
   else if (activeReport === "MILITANTES_DIVIDA") title = "RELATORIO DE INCOMPATIBILIDADE E DIVIDAS DE QUOTAS";
+  else if (activeReport === "BALANCO_SEMESTRAL") {
+    const endMonth = mesFilter === "Todos" ? 7 : parseInt(mesFilter, 10);
+    const startMonth = Math.max(1, endMonth - 5);
+    title = `BALANCO SEMESTRAL DE QUOTAS (${MONTHS_FULL[startMonth - 1].toUpperCase()} A ${MONTHS_FULL[endMonth - 1].toUpperCase()} DE 2026)`;
+  }
   else title = "RELATORIO DE MOBILIZACAO: MEMBROS INACTIVOS E SUSPENSOS";
   
   doc.text(title, 14, 45);
@@ -369,6 +374,122 @@ export function generateReportPDF(
         startY += 8;
       });
     }
+  } else if (activeReport === "BALANCO_SEMESTRAL") {
+    const endMonth = mesFilter === "Todos" ? 7 : parseInt(mesFilter, 10);
+    const startMonth = Math.max(1, endMonth - 5);
+    
+    const finalMonthsList: number[] = [];
+    for (let m = startMonth; m <= endMonth; m++) {
+      finalMonthsList.push(m);
+    }
+
+    const semesterMonths = finalMonthsList.map(mNum => {
+      const pList = payments.filter(p => p.pago && p.mes === mNum && p.ano === 2026);
+      const totalAmount = pList.reduce((sum, p) => sum + p.valor, 0);
+      return {
+        mesNum: mNum,
+        mesNome: MONTHS_FULL[mNum - 1],
+        quantidade: pList.length,
+        total: totalAmount
+      };
+    });
+
+    const semCount = semesterMonths.reduce((sum, m) => sum + m.quantidade, 0);
+    const semTotal = semesterMonths.reduce((sum, m) => sum + m.total, 0);
+
+    // Summary block
+    doc.setFillColor(244, 244, 245);
+    doc.rect(14, startY, 182, 18, "F");
+    doc.setFont("Helvetica", "bold");
+    doc.setFontSize(8);
+    doc.text(`PERIODO SEMESTRAL DE REFERENCIA: ${MONTHS_FULL[startMonth - 1].toUpperCase()} A ${MONTHS_FULL[endMonth - 1].toUpperCase()} DE 2026`, 16, startY + 5);
+    doc.setFont("Helvetica", "normal");
+    doc.text(`Total Arrecadado no Semestre: ${formatAKZ(semTotal)}`, 16, startY + 10);
+    doc.text(`Volume de Contribuicoes: ${semCount} quotas pagas   |   Media Mensal: ${formatAKZ(Math.round(semTotal / semesterMonths.length))}`, 16, startY + 14);
+
+    startY += 24;
+
+    // Table Header
+    doc.setFillColor(185, 28, 28); // red header
+    doc.rect(14, startY, 182, 8, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("Helvetica", "bold");
+    doc.text("Mes de Referencia", 16, startY + 5.5);
+    doc.text("Volume de Contribuicoes", 75, startY + 5.5);
+    doc.text("Total Arrecadado (AKZ)", 125, startY + 5.5);
+    doc.text("% do Semestre", 170, startY + 5.5);
+
+    startY += 8;
+    doc.setFont("Helvetica", "normal");
+    doc.setTextColor(24, 24, 27);
+
+    semesterMonths.forEach((m) => {
+      const pct = semTotal > 0 ? ((m.total / semTotal) * 100).toFixed(1) : "0.0";
+      doc.text(m.mesNome, 16, startY + 5.5);
+      doc.text(`${m.quantidade} pagamentos`, 75, startY + 5.5);
+      doc.text(formatAKZ(m.total), 125, startY + 5.5);
+      doc.text(`${pct}%`, 170, startY + 5.5);
+
+      doc.setDrawColor(228, 228, 231);
+      doc.setLineWidth(0.2);
+      doc.line(14, startY + 8, 196, startY + 8);
+      startY += 8;
+    });
+
+    // Totals bar
+    doc.setFillColor(24, 24, 27);
+    doc.rect(14, startY, 182, 10, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("Helvetica", "bold");
+    doc.text("TOTAL CONSOLIDADO", 16, startY + 6.5);
+    doc.text(`${semCount} pagamentos`, 75, startY + 6.5);
+    doc.text(formatAKZ(semTotal), 125, startY + 6.5);
+    doc.text("100%", 170, startY + 6.5);
+    doc.setTextColor(24, 24, 27);
+    
+    startY += 18;
+
+    // Simulation of repasses
+    if (startY > 230) {
+      doc.addPage();
+      pageCount++;
+      drawPageHeader(pageCount);
+      startY = 44;
+    }
+
+    doc.setFont("Helvetica", "bold");
+    doc.setFontSize(9);
+    doc.text("REPARTICAO ESTATUTARIA DOS VALORES DO SEMESTRE", 14, startY);
+    startY += 6;
+
+    const beneficiariosList = [
+      { nome: "CAP-190 (Comite Local)", percentagem: 40 },
+      { nome: "Comite de Distrito (Ingombota)", percentagem: 25 },
+      { nome: "Comite Provincial (Luanda)", percentagem: 15 },
+      { nome: "Comite Central (Nacional)", percentagem: 10 },
+      { nome: "Fundo de Solidariedade Social", percentagem: 5 },
+    ];
+
+    doc.setFillColor(244, 244, 245);
+    doc.rect(14, startY, 182, 8, "F");
+    doc.setFontSize(8);
+    doc.text("Orgao / Destino das Quotas", 16, startY + 5.5);
+    doc.text("Percentagem", 110, startY + 5.5);
+    doc.text("Valor Repassado (AKZ)", 145, startY + 5.5);
+    startY += 8;
+    doc.setFont("Helvetica", "normal");
+
+    beneficiariosList.forEach((b) => {
+      const shareVal = Math.round(semTotal * (b.percentagem / 100));
+      doc.text(b.nome, 16, startY + 5.5);
+      doc.text(`${b.percentagem}%`, 110, startY + 5.5);
+      doc.text(formatAKZ(shareVal), 145, startY + 5.5);
+
+      doc.setDrawColor(228, 228, 231);
+      doc.setLineWidth(0.1);
+      doc.line(14, startY + 8, 196, startY + 8);
+      startY += 8;
+    });
   } else if (activeReport === "MILITANTES_DIVIDA") {
     // Header rect
     doc.setFillColor(244, 244, 245);
@@ -554,6 +675,14 @@ export function generateMonthlySharePDF(
   appState: any,
   reportEmissionDate: string
 ) {
+  const nonCapShares = calculatedShares.filter(b => 
+    b.percentagem > 0 && 
+    !b.id.toLowerCase().includes("cap") && 
+    !b.nome.toLowerCase().includes("cap") && 
+    b.id.toLowerCase() !== "comite"
+  );
+  const totalDistribuidoPDF = nonCapShares.reduce((sum, b) => sum + b.valorCalculado, 0);
+
   const doc = new jsPDF({
     orientation: "portrait",
     unit: "mm",
@@ -669,7 +798,7 @@ export function generateMonthlySharePDF(
   doc.setFont("Helvetica", "bold");
   doc.setFontSize(8.5);
   doc.setTextColor(16, 124, 65);
-  doc.text(formatAKZ(totalDistribuido), 17, startY + 8.5);
+  doc.text(formatAKZ(totalDistribuidoPDF), 17, startY + 8.5);
 
   // Section 1: Table header
   startY += 18;
@@ -688,7 +817,7 @@ export function generateMonthlySharePDF(
 
   startY += 8;
   doc.setFont("Helvetica", "normal");
-  calculatedShares.forEach((b) => {
+  nonCapShares.forEach((b) => {
     doc.text(b.nome, 16, startY + 5.5);
     doc.text(`${b.percentagem}%`, 100, startY + 5.5);
     doc.setFont("Helvetica", "bold");
@@ -706,7 +835,7 @@ export function generateMonthlySharePDF(
   startY += 6;
   doc.setFont("Helvetica", "bold");
   doc.setFontSize(9.5);
-  doc.text("2. Submissão e Aprovação (Assinaturas Físicas)", 14, startY);
+  doc.text("2. Homologação e Assinaturas Físicas", 14, startY);
 
   // Signatures Grid layout (1 row of 2 columns)
   startY += 4;
@@ -726,7 +855,7 @@ export function generateMonthlySharePDF(
   doc.setFont("Helvetica", "bold");
   doc.setFontSize(7);
   doc.setTextColor(113, 113, 122);
-  doc.text("1. SUBMETIDO POR (TESOUREIRO)", col1X + colWidth / 2, startY + 5, { align: "center" });
+  doc.text("1. ELABORADO POR", col1X + colWidth / 2, startY + 5, { align: "center" });
 
   // Draw manual/physical signature line
   doc.setDrawColor(161, 161, 170); // zinc-400
@@ -755,7 +884,7 @@ export function generateMonthlySharePDF(
   doc.setFont("Helvetica", "bold");
   doc.setFontSize(7);
   doc.setTextColor(113, 113, 122);
-  doc.text("2. APROVADO POR (COORDENADOR)", col2X + colWidth / 2, startY + 5, { align: "center" });
+  doc.text("2. HOMOLOGADO E AUTORIZADO POR", col2X + colWidth / 2, startY + 5, { align: "center" });
 
   // Draw manual/physical signature line
   doc.setDrawColor(161, 161, 170); // zinc-400
@@ -784,8 +913,8 @@ export function generateMonthlySharePDF(
   doc.setFontSize(7.5);
   doc.setTextColor(113, 113, 122);
   const footerText = isSubmetido 
-    ? `Este relatório foi submetido pelo Tesoureiro, aprovado pelo Coordenador e arquivado digitalmente na data de ${appState.dataSubmissao ? appState.dataSubmissao.split("-").reverse().join("/") : "-"}.`
-    : `Este relatório é uma via oficial de controle financeiro do CAP-190 e requer todas as assinaturas registadas para validação final.`;
+    ? `Este relatório de distribuição de quotas foi homologado e submetido digitalmente ao Comité de Distrito da Ingombota na data de ${appState.dataSubmissao ? appState.dataSubmissao.split("-").reverse().join("/") : "-"}.`
+    : `Este relatório é uma via oficial de controle financeiro do CAP-190 e requer todas as assinaturas registadas para homologação distrital.`;
   doc.text(footerText, 14, startY);
 
   doc.save(`CAP190_Partilha_Quotas_${MONTHS_FULL[monthNum - 1]}_${yearNum}.pdf`);
